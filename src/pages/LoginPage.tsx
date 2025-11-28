@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent, CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -75,7 +75,7 @@ const checkboxLabelStyle: CSSProperties = {
 };
 
 const LoginPage = () => {
-  const { login } = useAuth();
+  const { login, isLoading, user } = useAuth();
   const navigate = useNavigate();
 
   const [username, setUsername] = useState("");
@@ -95,22 +95,27 @@ const LoginPage = () => {
     }
   }, []);
 
+  // Si ya hay usuario logueado, redirigir directamente a /horas
+  useEffect(() => {
+    if (user) {
+      navigate("/horas");
+    }
+  }, [user, navigate]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setIsSubmitting(true);
 
     const trimmedUsername = username.trim();
-    const error = await login(trimmedUsername, password);
+    const ok = await login(trimmedUsername, password);
+
     setIsSubmitting(false);
 
-    if (error === "USER_NOT_FOUND") {
-      setErrorMsg("El usuario no existe. Contacte con administración.");
-      return;
-    }
-
-    if (error === "BAD_CREDENTIALS") {
-      setErrorMsg("Usuario o contraseña incorrectos.");
+    if (!ok) {
+      // El AuthContext ya muestra un alert con el mensaje del backend,
+      // aquí mostramos un mensaje genérico bajo el formulario.
+      setErrorMsg("No se ha podido iniciar sesión. Revisa usuario y contraseña.");
       return;
     }
 
@@ -121,7 +126,6 @@ const LoginPage = () => {
       localStorage.removeItem("rh_username");
     }
 
-    // Más adelante esto apuntará a /horas
     navigate("/horas");
   };
 
@@ -189,13 +193,17 @@ const LoginPage = () => {
 
           {errorMsg && <div style={errorStyle}>{errorMsg}</div>}
 
-          <button type="submit" style={buttonStyle} disabled={isSubmitting}>
-            {isSubmitting ? "Entrando..." : "Iniciar sesión"}
+          <button
+            type="submit"
+            style={buttonStyle}
+            disabled={isSubmitting || isLoading}
+          >
+            {isSubmitting || isLoading ? "Entrando..." : "Iniciar sesión"}
           </button>
 
           <p style={{ ...smallTextStyle, marginTop: "0.75rem" }}>
-            (En esta demo el usuario válido es <b>alejandro</b> y la contraseña{" "}
-            <b>1234</b>).
+            (En esta demo los usuarios válidos son <b>alejandro / 1234</b> y{" "}
+            <b>demo / demo123</b>).
           </p>
         </form>
       </div>

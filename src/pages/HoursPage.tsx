@@ -6,6 +6,9 @@ import DayRow from "../components/DayRow";
 import type { DayHours } from "../components/DayRow";
 import SignatureModal from "../components/SignatureModal";
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+
 const pageContainerStyle: CSSProperties = {
   minHeight: "100vh",
   backgroundColor: "#f3f4f6",
@@ -108,7 +111,7 @@ const signatureStatusStyle: CSSProperties = {
 
 const errorBannerStyle: CSSProperties = {
   backgroundColor: "#fee2e2",
-  border: "1px solid #fca5a5",
+  border: "1px solid ",
   color: "#b91c1c",
   padding: "0.5rem 0.75rem",
   borderRadius: "0.375rem",
@@ -236,14 +239,30 @@ const validateDay = (value: DayHours): DayValidationResult => {
   return { totalMinutes, errors };
 };
 
+type DayPayloadFromApi = {
+  day: number;
+  morningIn?: string;
+  morningOut?: string;
+  afternoonIn?: string;
+  afternoonOut?: string;
+};
+
+type MonthFromApi = {
+  year: number;
+  month: number;
+  days: DayPayloadFromApi[];
+  signatureDataUrl?: string | null;
+};
+
 const HoursPage = () => {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const navigate = useNavigate();
 
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [monthIndex, setMonthIndex] = useState(today.getMonth()); // 0-11
   const [days, setDays] = useState<DayHours[]>([]);
+  const [isLoadingMonth, setIsLoadingMonth] = useState(false);
 
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
@@ -270,99 +289,152 @@ const HoursPage = () => {
     return todayLocal.getMonth() !== tomorrow.getMonth();
   }, []);
 
-  const storageKey = (username: string, year: number, monthIndex: number) =>
-    `registro_horas:${username}:${year}-${monthIndex}`;
+  // Inicializar días vacíos
+  const createEmptyDays = (): DayHours[] => {
+    const arr: DayHours[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      arr.push({
+        day: d,
+        morningIn: "",
+        morningOut: "",
+        afternoonIn: "",
+        afternoonOut: "",
+        total: "",
+      });
+    }
+    return arr;
+  };
 
-  // Cargar desde localStorage cuando cambian usuario/año/mes
+  // Cargar datos del backend cuando cambian año/mes
   useEffect(() => {
-    if (!user) return;
+    if (!token || !user) return;
 
-    const key = storageKey(user.username, year, monthIndex);
-    const saved = localStorage.getItem(key);
+    const fetchMonth = async () => {
+      setIsLoadingMonth(true);
+      setDayErrors({});
+      setErrorMessages([]);
+      setCopiedDayIndex(null);
 
-    if (saved) {
       try {
-        const parsed = JSON.parse(saved) as {
-          days?: DayHours[];
-          signatureDataUrl?: string | null;
+        const queryMonth = monthIndex + 1; // 1-12
+        const res = await fetch(
+          `${API_BASE_URL}/hours?year=${year}&month=${queryMonth}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (res.status === 401) {
+          alert("Sesión caducada. Vuelve a iniciar sesión.");
+          logout();
+          navigate("/login");
+          return;
+        }
+
+        if (!res.ok) {
+          console.error("Error cargando horas:", await res.text());
+          setDays(createEmptyDays());
+          setSignatureDataUrl(null);
+          return;
+        }
+
+        const json = (await res.json()) as {
+          exists: boolean;
+          data: MonthFromApi | null;
         };
 
-        if (
-          parsed.days &&
-          Array.isArray(parsed.days) &&
-          parsed.days.length === daysInMonth
-        ) {
-          setDays(parsed.days);
+        if (!json.exists || !json.data) {
+          setDays(createEmptyDays());
+          setSignatureDataUrl(null);
         } else {
-          const newDays: DayHours[] = [];
+          const serverMonth = json.data;
+          const mappedDays: DayHours[] = [];
+
           for (let d = 1; d <= daysInMonth; d++) {
-            newDays.push({
-              day: d,
-              morningIn: "",
-              morningOut: "",
-              afternoonIn: "",
-              afternoonOut: "",
-              total: "",
-            });
+            const serverDay = serverMonth.days.find((x) => x.day === d);
+            if (!serverDay) {
+              mappedDays.push({
+                day: d,
+                morningIn: "",
+                morningOut: "",
+                afternoonIn: "",
+                afternoonOut: "",
+                total: "",
+              });
+            } else {
+              const value: DayHours = {
+                day: d,
+                morningIn: serverDay.morningIn ?? "",
+                morningOut: serverDay.morningOut ?? "",
+                afternoonIn: serverDay.afternoonIn ?? "",
+                afternoonOut: serverDay.afternoonOut ?? "",
+                total: "",
+              };
+              value.total = calculateTotal(value);
+              mappedDays.push(value);
+            }
           }
-          setDays(newDays);
+
+          setDays(mappedDays);
+          setSignatureDataUrl(serverMonth.signatureDataUrl ?? null);
         }
 
-        if (typeof parsed.signatureDataUrl === "string") {
-          setSignatureDataUrl(parsed.signatureDataUrl);
-        } else {
-          setSignatureDataUrl(null);
-        }
-      } catch (e) {
-        // Si hay algo corrupto, inicializamos vacío
-        const newDays: DayHours[] = [];
-        for (let d = 1; d <= daysInMonth; d++) {
-          newDays.push({
-            day: d,
-            morningIn: "",
-            morningOut: "",
-            afternoonIn: "",
-            afternoonOut: "",
-            total: "",
-          });
-        }
-        setDays(newDays);
+        setHasUnsavedChanges(false);
+      } catch (error) {
+        console.error("Error cargando mes:", error);
+        setDays(createEmptyDays());
         setSignatureDataUrl(null);
+      } finally {
+        setIsLoadingMonth(false);
       }
-    } else {
-      const newDays: DayHours[] = [];
-      for (let d = 1; d <= daysInMonth; d++) {
-        newDays.push({
-          day: d,
-          morningIn: "",
-          morningOut: "",
-          afternoonIn: "",
-          afternoonOut: "",
-          total: "",
-        });
+    };
+
+    fetchMonth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, monthIndex, token, user]);
+
+  // --- Resumen de horas del mes ---
+
+  const monthSummary = useMemo(() => {
+    let totalMinutes = 0;
+    let daysWithHours = 0;
+    let workingDays = 0;
+
+    for (const d of days) {
+      const weekend = isWeekend(year, monthIndex, d.day);
+      const future = isFutureDay(year, monthIndex, d.day);
+      if (!weekend) {
+        if (
+          !future ||
+          d.morningIn ||
+          d.morningOut ||
+          d.afternoonIn ||
+          d.afternoonOut
+        ) {
+          workingDays++;
+        }
       }
-      setDays(newDays);
-      setSignatureDataUrl(null);
+
+      const { totalMinutes: dayMinutes } = validateDay(d);
+      if (dayMinutes > 0) {
+        totalMinutes += dayMinutes;
+        daysWithHours++;
+      }
     }
 
-    setCopiedDayIndex(null);
-    setDayErrors({});
-    setErrorMessages([]);
-    setHasUnsavedChanges(false);
-  }, [user, year, monthIndex, daysInMonth]);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const mm = minutes.toString().padStart(2, "0");
 
-  // Guardar en localStorage cuando cambian días o firma
-  useEffect(() => {
-    if (!user) return;
-    if (days.length === 0) return;
-
-    const key = storageKey(user.username, year, monthIndex);
-    const payload = {
-      days,
-      signatureDataUrl,
+    return {
+      totalMinutes,
+      totalFormatted: `${hours}:${mm}`,
+      daysWithHours,
+      workingDays,
     };
-    localStorage.setItem(key, JSON.stringify(payload));
-  }, [user, year, monthIndex, days, signatureDataUrl]);
+  }, [days, year, monthIndex]);
 
   // --- Validación global ---
 
@@ -395,41 +467,6 @@ const HoursPage = () => {
     return true;
   };
 
-  // --- Resumen de horas del mes ---
-
-  const monthSummary = useMemo(() => {
-    let totalMinutes = 0;
-    let daysWithHours = 0;
-    let workingDays = 0;
-
-    for (const d of days) {
-      const weekend = isWeekend(year, monthIndex, d.day);
-      const future = isFutureDay(year, monthIndex, d.day);
-      if (!weekend) {
-        if (!future || d.morningIn || d.morningOut || d.afternoonIn || d.afternoonOut) {
-          workingDays++;
-        }
-      }
-
-      const { totalMinutes: dayMinutes } = validateDay(d);
-      if (dayMinutes > 0) {
-        totalMinutes += dayMinutes;
-        daysWithHours++;
-      }
-    }
-
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    const mm = minutes.toString().padStart(2, "0");
-
-    return {
-      totalMinutes,
-      totalFormatted: `${hours}:${mm}`,
-      daysWithHours,
-      workingDays,
-    };
-  }, [days, year, monthIndex]);
-
   // --- Handlers ---
 
   const handleDayChange = (index: number, newValue: DayHours) => {
@@ -445,8 +482,8 @@ const HoursPage = () => {
   const askBeforeMonthChange = (): boolean => {
     if (!hasUnsavedChanges) return true;
     return window.confirm(
-      "Tienes cambios en este mes que aún no has enviado (Guardar horas / Generar plantilla). " +
-        "La información se guarda en este navegador, pero puede que no esté enviada a administración. ¿Quieres cambiar de mes igualmente?"
+      "Tienes cambios en este mes que aún no has enviado. " +
+        "¿Quieres cambiar de mes igualmente?"
     );
   };
 
@@ -464,28 +501,133 @@ const HoursPage = () => {
     setMonthIndex(next.getMonth());
   };
 
-  const handleSaveHours = () => {
-    if (!validateAllDays()) return;
+  const saveMonthToBackend = async (): Promise<boolean> => {
+    if (!token) {
+      alert("No hay token de sesión. Vuelve a iniciar sesión.");
+      logout();
+      navigate("/login");
+      return false;
+    }
 
-    console.log("Horas del mes (simulado):", {
+    const payload = {
       year,
-      monthIndex,
-      days,
+      month: monthIndex + 1, // 1-12
+      days: days.map((d) => ({
+        day: d.day,
+        morningIn: d.morningIn || undefined,
+        morningOut: d.morningOut || undefined,
+        afternoonIn: d.afternoonIn || undefined,
+        afternoonOut: d.afternoonOut || undefined,
+      })),
       signatureDataUrl,
-    });
-    setHasUnsavedChanges(false);
-    alert(
-      "Horas válidas y guardadas en memoria (simulado, sin backend). La firma también se tendrá en cuenta al generar el PDF."
-    );
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/hours`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 401) {
+        alert("Sesión caducada. Vuelve a iniciar sesión.");
+        logout();
+        navigate("/login");
+        return false;
+      }
+
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error("Error guardando horas:", txt);
+        alert("Error al guardar las horas en el servidor.");
+        return false;
+      }
+
+      setHasUnsavedChanges(false);
+      return true;
+    } catch (error) {
+      console.error("Error guardando horas:", error);
+      alert("No se ha podido conectar con el servidor para guardar las horas.");
+      return false;
+    }
   };
 
-  const handleGenerateTemplate = () => {
+  const downloadPdfForCurrentMonth = async (): Promise<boolean> => {
+    if (!token) {
+      alert("No hay token de sesión. Vuelve a iniciar sesión.");
+      logout();
+      navigate("/login");
+      return false;
+    }
+
+    const queryMonth = monthIndex + 1;
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/hours/pdf?year=${year}&month=${queryMonth}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (res.status === 401) {
+        alert("Sesión caducada. Vuelve a iniciar sesión.");
+        logout();
+        navigate("/login");
+        return false;
+      }
+
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error("Error generando PDF:", txt);
+        alert("Error al generar el PDF en el servidor.");
+        return false;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const monthPadded = String(queryMonth).padStart(2, "0");
+      a.href = url;
+      a.download = `registro_horas_${year}_${monthPadded}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      return true;
+    } catch (error) {
+      console.error("Error descargando PDF:", error);
+      alert("No se ha podido conectar con el servidor para generar el PDF.");
+      return false;
+    }
+  };
+
+  const handleSaveHours = async () => {
     if (!validateAllDays()) return;
 
-    setHasUnsavedChanges(false);
-    alert(
-      "Generar plantilla (simulado). Más adelante descargará el PDF con la plantilla oficial y la firma en las celdas correspondientes."
-    );
+    const ok = await saveMonthToBackend();
+    if (ok) {
+      alert(
+        "Horas válidas y guardadas en el servidor (en memoria). La firma también se usará al generar el PDF."
+      );
+    }
+  };
+
+  const handleGenerateTemplate = async () => {
+    if (!validateAllDays()) return;
+
+    // 1) Guardar en servidor
+    const okSave = await saveMonthToBackend();
+    if (!okSave) return;
+
+    // 2) Generar y descargar PDF
+    await downloadPdfForCurrentMonth();
   };
 
   const handleLogout = () => {
@@ -522,10 +664,8 @@ const HoursPage = () => {
       const weekend = isWeekend(year, monthIndex, dayNumber);
       const future = isFutureDay(year, monthIndex, dayNumber);
 
-      // No copiar a fines de semana ni a días futuros
       if (weekend || future) continue;
 
-      // No machacar días que ya tienen horas
       const hasAnyExisting =
         target.morningIn ||
         target.morningOut ||
@@ -564,13 +704,11 @@ const HoursPage = () => {
   const handleCopyOrPasteDay = (index: number) => {
     const day = days[index];
 
-    // Si ya es la plantilla -> ahora hace de "Pegar"
     if (copiedDayIndex === index) {
       pasteFromIndex(index);
       return;
     }
 
-    // Modo "Copiar"
     const hasAny =
       day.morningIn || day.morningOut || day.afternoonIn || day.afternoonOut;
 
@@ -591,7 +729,6 @@ const HoursPage = () => {
       return;
     }
 
-    // Guardamos índice como plantilla
     setCopiedDayIndex(index);
   };
 
@@ -613,12 +750,10 @@ const HoursPage = () => {
     setDays(updated);
     setHasUnsavedChanges(true);
 
-    // Limpia errores si los hubiera
     if (dayErrors[d.day]) {
       const newErrors = { ...dayErrors };
       delete newErrors[d.day];
       setDayErrors(newErrors);
-      // recomponemos banner
       const msgs = Object.entries(newErrors).map(
         ([dayStr, errs]) =>
           `Día ${dayStr}: ${errs
@@ -629,6 +764,11 @@ const HoursPage = () => {
     }
   };
 
+  if (!user || !token) {
+    navigate("/login");
+    return null;
+  }
+
   return (
     <div style={pageContainerStyle}>
       {/* Header */}
@@ -638,7 +778,7 @@ const HoursPage = () => {
             Registro diario de jornada
           </div>
           <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-            Usuario: <strong>{user?.username}</strong>
+            Usuario: <strong>{user.username}</strong> ({user.fullName})
           </div>
         </div>
         <button
@@ -672,8 +812,25 @@ const HoursPage = () => {
             >
               {monthName} {year}
               {hasUnsavedChanges && (
-                <span style={{ marginLeft: "0.5rem", fontSize: "0.7rem", color: "#b45309" }}>
+                <span
+                  style={{
+                    marginLeft: "0.5rem",
+                    fontSize: "0.7rem",
+                    color: "#b45309",
+                  }}
+                >
                   • cambios sin enviar
+                </span>
+              )}
+              {isLoadingMonth && (
+                <span
+                  style={{
+                    marginLeft: "0.5rem",
+                    fontSize: "0.7rem",
+                    color: "#4b5563",
+                  }}
+                >
+                  (cargando…)
                 </span>
               )}
             </span>
@@ -711,8 +868,12 @@ const HoursPage = () => {
                   Eliminar firma
                 </button>
               )}
-              <button style={actionButtonStyle} onClick={handleSaveHours}>
-                Guardar horas (simulado)
+              <button
+                style={actionButtonStyle}
+                onClick={handleSaveHours}
+                disabled={isLoadingMonth}
+              >
+                Guardar horas
               </button>
             </div>
             <div style={signatureStatusStyle}>
@@ -772,7 +933,6 @@ const HoursPage = () => {
                 const disabled = weekend || future;
                 const weekdayLabel = getWeekdayLabel(year, monthIndex, d.day);
 
-                // Mostrar firma en cualquier día que tenga horas (y exista firma)
                 const hasAnyHours =
                   d.morningIn ||
                   d.morningOut ||
@@ -854,8 +1014,7 @@ const HoursPage = () => {
               <span>Hoy es el último día del mes. Puedes cerrar la jornada.</span>
             ) : (
               <span>
-                Solo se debería generar la plantilla el último día del mes
-                (simulado).
+                Solo se debería generar la plantilla el último día del mes.
               </span>
             )}
           </div>
@@ -865,10 +1024,10 @@ const HoursPage = () => {
               opacity: isLastDayOfCurrentMonth ? 1 : 0.6,
               cursor: isLastDayOfCurrentMonth ? "pointer" : "not-allowed",
             }}
-            disabled={!isLastDayOfCurrentMonth}
+            disabled={!isLastDayOfCurrentMonth || isLoadingMonth}
             onClick={handleGenerateTemplate}
           >
-            Generar plantilla (simulado)
+            Generar plantilla (descargar PDF)
           </button>
         </section>
       </main>

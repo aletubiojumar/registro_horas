@@ -4,19 +4,20 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
 
-# Si quieres versionar el lockfile, comenta las líneas de arriba:
+# IMPORTANTE: ahora SÍ vamos a versionar los lockfiles
+# para tener builds reproducibles en front y backend.
+# Si en algún momento NO quisieras versionarlos, vuelve a ignorarlos aquí:
 # package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
 
-# --- Build / Vite ---
+# --- Build / Vite / Node ---
 dist/
-vite.config.*.timestamp-*
 .vite/
+vite.config.*.timestamp-*
+
+# (dist/ se aplica también a cualquier dist/ del backend)
 
 # --- TypeScript ---
 *.tsbuildinfo
@@ -52,3 +53,4 @@ coverage/
 *~
 .tmp/
 .cache/
+.temp/
