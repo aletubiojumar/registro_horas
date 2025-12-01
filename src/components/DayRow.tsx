@@ -1,57 +1,74 @@
+import React from "react";
 import type { ChangeEvent, CSSProperties } from "react";
 
-export type DayHours = {
+export type AbsenceType =
+  | "none"
+  | "vacaciones"
+  | "dia_no_lectivo"
+  | "ausencia_medica";
+
+export interface DayHours {
   day: number;
   morningIn: string;
   morningOut: string;
   afternoonIn: string;
   afternoonOut: string;
-  total: string; // texto tipo "8:00"
-};
+  total: string;
+  absenceType: AbsenceType;
+  // Solo para mostrar el nombre del archivo subido en ausencias médicas
+  medicalJustificationFileName?: string;
+}
 
-type Props = {
+interface DayRowProps {
   value: DayHours;
-  onChange: (newValue: DayHours) => void;
+  onChange: (value: DayHours) => void;
+  // En la práctica es "no se pueden introducir horas" (fines de semana o días futuros)
   disabled: boolean;
   isWeekend: boolean;
   isFuture: boolean;
   weekdayLabel: string;
-  signatureDataUrl: string | null; // firma para ESTA fila (o null)
-  onCopyOrPasteClick: () => void;   // copiar o pegar
-  isCopySource: boolean;            // si esta fila es la plantilla actual
-  hasError: boolean;                // si este día tiene errores de validación
-  onClearClick: () => void;         // limpiar este día
-};
+  signatureDataUrl: string | null;
+  onCopyOrPasteClick: () => void;
+  isCopySource: boolean;
+  hasError: boolean;
+  onClearClick: () => void;
+  onMedicalFileChange?: (day: number, file: File | null) => void;
+}
 
-const cellInputStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "0.15rem 0.25rem",
-  fontSize: "0.8rem",
-};
-
-const signatureCellBaseStyle: CSSProperties = {
+const tdStyleBase: CSSProperties = {
   border: "1px solid #e5e7eb",
-  padding: "0.15rem 0.25rem",
+  padding: "0.25rem",
+  fontSize: "0.75rem",
   textAlign: "center",
 };
 
-const smallButtonStyle: CSSProperties = {
-  padding: "0.15rem 0.35rem",
+const timeInputStyle: CSSProperties = {
+  width: "4.2rem",
+  padding: "0.1rem 0.2rem",
+  fontSize: "0.75rem",
+  borderRadius: "0.2rem",
+  border: "1px solid #d1d5db",
+  textAlign: "center",
+  boxSizing: "border-box",
+};
+
+const totalCellStyle: CSSProperties = {
+  ...tdStyleBase,
+  fontWeight: 600,
+  backgroundColor: "#f9fafb",
+};
+
+const buttonLinkStyle: CSSProperties = {
   fontSize: "0.7rem",
+  padding: "0.15rem 0.35rem",
   borderRadius: "0.25rem",
   border: "1px solid #d1d5db",
   backgroundColor: "#ffffff",
   cursor: "pointer",
+  whiteSpace: "nowrap",
 };
 
-const dangerButtonStyle: CSSProperties = {
-  ...smallButtonStyle,
-  borderColor: "#dc2626",
-  color: "#dc2626",
-};
-
-const DayRow = ({
+const DayRow: React.FC<DayRowProps> = ({
   value,
   onChange,
   disabled,
@@ -63,165 +80,271 @@ const DayRow = ({
   isCopySource,
   hasError,
   onClearClick,
-}: Props) => {
-  const handleFieldChange =
-    (field: keyof DayHours) => (e: ChangeEvent<HTMLInputElement>) => {
-      if (disabled) return;
-      onChange({ ...value, [field]: e.target.value });
-    };
+  onMedicalFileChange,
+}) => {
+  // 👉 Las horas sí se bloquean en días futuros o fines de semana
+  const timeInputsDisabled = disabled || value.absenceType !== "none";
 
-  let backgroundColor = "#ffffff";
+  // 👉 Calculamos el color de la fila:
+  // - Fines de semana: amarillo
+  // - Vacaciones: azul
+  // - Día no lectivo: morado
+  // - Ausencia médica: rosa
+  // - Días futuros sin ausencia: gris
+  // - Resto: blanco
+  let bg = "#ffffff";
 
-  if (isWeekend) backgroundColor = "#fef3c7";
-  if (isFuture) backgroundColor = "#e5e7eb";
-  if (hasError) backgroundColor = "#fee2e2"; // errores mandan
-
-  if (isCopySource) {
-    // si es plantilla, la resaltamos un poco más
-    backgroundColor = "#dbeafe";
+  if (isWeekend) {
+    bg = "#fef3c7"; // amarillo suave
+  } else if (value.absenceType === "vacaciones") {
+    bg = "#bfdbfe"; // azul suave
+  } else if (value.absenceType === "dia_no_lectivo") {
+    bg = "#e9d5ff"; // morado suave
+  } else if (value.absenceType === "ausencia_medica") {
+    bg = "#fecdd3"; // rosa suave
+  } else if (isFuture) {
+    bg = "#e5e7eb"; // gris claro
   }
 
   const rowStyle: CSSProperties = {
-    backgroundColor,
-    opacity: disabled ? 0.7 : 1,
+    backgroundColor: bg,
   };
 
-  const dayCellStyle: CSSProperties = {
-    border: "1px solid #e5e7eb",
-    padding: "0.25rem 0.5rem",
-    textAlign: "center",
-    fontSize: "0.8rem",
-    fontWeight: isWeekend ? 600 : 400,
+  if (hasError) {
+    rowStyle.boxShadow = "inset 0 0 0 1px #fca5a5";
+  }
+
+  const handleTimeChange =
+    (field: keyof DayHours) => (e: ChangeEvent<HTMLInputElement>) => {
+      const newValue = e.target.value;
+      const updated: DayHours = { ...value, [field]: newValue };
+      onChange(updated);
+    };
+
+  const handleAbsenceChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const newType = e.target.value as AbsenceType;
+    let updated: DayHours = {
+      ...value,
+      absenceType: newType,
+    };
+
+    // Si ponemos una ausencia, limpiamos las horas
+    if (newType !== "none") {
+      updated = {
+        ...updated,
+        morningIn: "",
+        morningOut: "",
+        afternoonIn: "",
+        afternoonOut: "",
+        total: "",
+      };
+    }
+
+    // Si ya no es ausencia médica, limpiamos el justificante
+    if (newType !== "ausencia_medica") {
+      updated.medicalJustificationFileName = undefined;
+      if (onMedicalFileChange) {
+        onMedicalFileChange(value.day, null);
+      }
+    }
+
+    onChange(updated);
   };
 
-  const weekdayCellStyle: CSSProperties = {
-    border: "1px solid #e5e7eb",
-    padding: "0.25rem 0.5rem",
-    textAlign: "center",
-    fontSize: "0.75rem",
-    textTransform: "capitalize",
-    color: "#4b5563",
-  };
+  const handleMedicalFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
 
-  const editableCellStyle: CSSProperties = {
-    border: "1px solid #e5e7eb",
-    padding: "0.25rem",
-  };
+    const updated: DayHours = {
+      ...value,
+      medicalJustificationFileName: file?.name ?? undefined,
+    };
+    onChange(updated);
 
-  const totalCellStyle: CSSProperties = {
-    border: "1px solid #e5e7eb",
-    padding: "0.25rem 0.5rem",
-    textAlign: "center",
-    fontSize: "0.8rem",
-  };
-
-  const actionCellStyle: CSSProperties = {
-    border: "1px solid #e5e7eb",
-    padding: "0.25rem 0.5rem",
-    textAlign: "center",
-    whiteSpace: "nowrap",
+    if (onMedicalFileChange) {
+      onMedicalFileChange(value.day, file);
+    }
   };
 
   const renderSignatureCell = () => {
     if (!signatureDataUrl) {
-      return <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>—</span>;
+      return <td style={tdStyleBase}></td>;
     }
+
     return (
-      <img
-        src={signatureDataUrl}
-        alt="firma"
-        style={{ maxHeight: "20px", maxWidth: "70px", objectFit: "contain" }}
-      />
+      <td style={tdStyleBase}>
+        <img
+          src={signatureDataUrl}
+          alt="Firma"
+          style={{ height: "22px", maxWidth: "90px", objectFit: "contain" }}
+        />
+      </td>
     );
   };
 
-  const hasAnyHours =
-    value.morningIn ||
-    value.morningOut ||
-    value.afternoonIn ||
-    value.afternoonOut;
-
-  const copyButtonLabel = isCopySource ? "Pegar" : "Copiar";
+  const absenceDisabled = isWeekend;
 
   return (
     <tr style={rowStyle}>
-      <td style={dayCellStyle}>{value.day}</td>
-      <td style={weekdayCellStyle}>{weekdayLabel}</td>
+      {/* Día */}
+      <td style={tdStyleBase}>{value.day}</td>
+
+      {/* Día semana */}
+      <td style={tdStyleBase}>{weekdayLabel}</td>
 
       {/* Mañana entrada */}
-      <td style={editableCellStyle}>
+      <td style={tdStyleBase}>
         <input
           type="time"
           value={value.morningIn}
-          onChange={handleFieldChange("morningIn")}
-          style={cellInputStyle}
-          disabled={disabled}
+          onChange={handleTimeChange("morningIn")}
+          style={timeInputStyle}
+          disabled={timeInputsDisabled}
         />
       </td>
-      {/* Mañana firma entrada */}
-      <td style={signatureCellBaseStyle}>{renderSignatureCell()}</td>
+
+      {/* Firma mañana entrada */}
+      {renderSignatureCell()}
 
       {/* Mañana salida */}
-      <td style={editableCellStyle}>
+      <td style={tdStyleBase}>
         <input
           type="time"
           value={value.morningOut}
-          onChange={handleFieldChange("morningOut")}
-          style={cellInputStyle}
-          disabled={disabled}
+          onChange={handleTimeChange("morningOut")}
+          style={timeInputStyle}
+          disabled={timeInputsDisabled}
         />
       </td>
-      {/* Mañana firma salida */}
-      <td style={signatureCellBaseStyle}>{renderSignatureCell()}</td>
+
+      {/* Firma mañana salida */}
+      {renderSignatureCell()}
 
       {/* Tarde entrada */}
-      <td style={editableCellStyle}>
+      <td style={tdStyleBase}>
         <input
           type="time"
           value={value.afternoonIn}
-          onChange={handleFieldChange("afternoonIn")}
-          style={cellInputStyle}
-          disabled={disabled}
+          onChange={handleTimeChange("afternoonIn")}
+          style={timeInputStyle}
+          disabled={timeInputsDisabled}
         />
       </td>
-      {/* Tarde firma entrada */}
-      <td style={signatureCellBaseStyle}>{renderSignatureCell()}</td>
+
+      {/* Firma tarde entrada */}
+      {renderSignatureCell()}
 
       {/* Tarde salida */}
-      <td style={editableCellStyle}>
+      <td style={tdStyleBase}>
         <input
           type="time"
           value={value.afternoonOut}
-          onChange={handleFieldChange("afternoonOut")}
-          style={cellInputStyle}
-          disabled={disabled}
+          onChange={handleTimeChange("afternoonOut")}
+          style={timeInputStyle}
+          disabled={timeInputsDisabled}
         />
       </td>
-      {/* Tarde firma salida */}
-      <td style={signatureCellBaseStyle}>{renderSignatureCell()}</td>
 
-      {/* Total día */}
+      {/* Firma tarde salida */}
+      {renderSignatureCell()}
+
+      {/* Total */}
       <td style={totalCellStyle}>{value.total}</td>
 
-      {/* Acción copiar/pegar */}
-      <td style={actionCellStyle}>
+      {/* Ausencia */}
+      <td style={tdStyleBase}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+          {/* 👉 OJO: el select de ausencia YA NO se deshabilita por días futuros.
+              Solo usamos disabled para las horas, no para las ausencias. */}
+          <select
+            value={value.absenceType}
+            onChange={handleAbsenceChange}
+            disabled={absenceDisabled}
+            style={{
+              fontSize: "0.7rem",
+              padding: "0.1rem 0.2rem",
+              borderRadius: "0.2rem",
+              border: "1px solid #d1d5db",
+              backgroundColor: absenceDisabled ? "#f3f4f6" : "white",
+            }}
+          >
+            <option value="none">Sin ausencia</option>
+            <option value="vacaciones">Vacaciones</option>
+            <option value="dia_no_lectivo">Día no lectivo</option>
+            <option value="ausencia_medica">Ausencia médica</option>
+          </select>
+
+          {value.absenceType === "ausencia_medica" && (
+            <div style={{ fontSize: "0.7rem", textAlign: "left" }}>
+              <label>
+                <span style={{ display: "inline-block", marginBottom: "0.1rem" }}>
+                  Justificante:
+                </span>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={handleMedicalFileChange}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    fontSize: "0.7rem",
+                  }}
+                />
+              </label>
+              {value.medicalJustificationFileName && (
+                <div
+                  style={{
+                    marginTop: "0.1rem",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  Archivo: <strong>{value.medicalJustificationFileName}</strong>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </td>
+
+      {/* Copiar / pegar */}
+      <td style={tdStyleBase}>
         <button
           type="button"
-          style={smallButtonStyle}
-          onClick={onCopyOrPasteClick}
-          disabled={!hasAnyHours && !isCopySource}
+          disabled={isWeekend}
+          onClick={isWeekend ? undefined : onCopyOrPasteClick}
+          style={{
+            ...buttonLinkStyle,
+            backgroundColor: isWeekend
+              ? "#f3f4f6"
+              : isCopySource
+              ? "#bfdbfe"
+              : "#ffffff",
+            borderColor: isWeekend
+              ? "#d1d5db"
+              : isCopySource
+              ? "#60a5fa"
+              : "#d1d5db",
+            cursor: isWeekend ? "not-allowed" : "pointer",
+            opacity: isWeekend ? 0.5 : 1,
+          }}
         >
-          {copyButtonLabel}
+          {isCopySource ? "Pegar" : "Copiar"}
         </button>
       </td>
 
-      {/* Acción limpiar */}
-      <td style={actionCellStyle}>
+      {/* Limpiar */}
+      <td style={tdStyleBase}>
         <button
           type="button"
-          style={dangerButtonStyle}
-          onClick={onClearClick}
-          disabled={!hasAnyHours}
+          disabled={isWeekend}
+          onClick={isWeekend ? undefined : onClearClick}
+          style={{
+            ...buttonLinkStyle,
+            backgroundColor: isWeekend ? "#f3f4f6" : "#ffffff",
+            cursor: isWeekend ? "not-allowed" : "pointer",
+            opacity: isWeekend ? 0.5 : 1,
+          }}
         >
           Limpiar
         </button>

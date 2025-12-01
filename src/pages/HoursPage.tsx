@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import DayRow from "../components/DayRow";
 import type { DayHours } from "../components/DayRow";
 import SignatureModal from "../components/SignatureModal";
+import VacationModal from "../components/VacationModal";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
@@ -76,7 +77,7 @@ const tableContainerStyle: CSSProperties = {
 const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  minWidth: 900,
+  minWidth: 1020,
 };
 
 const thStyle: CSSProperties = {
@@ -95,7 +96,7 @@ const footerBarStyle: CSSProperties = {
   fontSize: "0.75rem",
   color: "#4b5563",
   gap: "0.5rem",
-  flexWrap: "wrap",
+  flexWrap: "nowrap",
 };
 
 const legendStyle: CSSProperties = {
@@ -111,7 +112,7 @@ const signatureStatusStyle: CSSProperties = {
 
 const errorBannerStyle: CSSProperties = {
   backgroundColor: "#fee2e2",
-  border: "1px solid ",
+  border: "1px solid #fca5a5",
   color: "#b91c1c",
   padding: "0.5rem 0.75rem",
   borderRadius: "0.375rem",
@@ -187,6 +188,12 @@ type DayValidationResult = {
 
 const validateDay = (value: DayHours): DayValidationResult => {
   const errors: string[] = [];
+
+  // Si hay ausencia (vacaciones, día no lectivo o ausencia médica),
+  // no aplicamos validación de horas.
+  if (value.absenceType !== "none") {
+    return { totalMinutes: 0, errors: [] };
+  }
 
   // Mañana
   if (value.morningIn || value.morningOut) {
@@ -273,6 +280,16 @@ const HoursPage = () => {
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
+  // Ficheros de justificante médico por día (solo en front por ahora)
+  const [medicalFiles, setMedicalFiles] = useState<Record<number, File | null>>(
+    {}
+  );
+
+  // Modal de vacaciones y días seleccionados
+  const [isVacationModalOpen, setIsVacationModalOpen] = useState(false);
+  const [selectedVacations, setSelectedVacations] = useState<number[]>([]);
+  const MAX_VACATION_DAYS = 23;
+
   const daysInMonth = useMemo(
     () => getDaysInMonth(year, monthIndex),
     [year, monthIndex]
@@ -281,13 +298,6 @@ const HoursPage = () => {
   const monthName = new Intl.DateTimeFormat("es-ES", {
     month: "long",
   }).format(new Date(year, monthIndex, 1));
-
-  const isLastDayOfCurrentMonth = useMemo(() => {
-    const todayLocal = new Date();
-    const tomorrow = new Date(todayLocal);
-    tomorrow.setDate(todayLocal.getDate() + 1);
-    return todayLocal.getMonth() !== tomorrow.getMonth();
-  }, []);
 
   // Inicializar días vacíos
   const createEmptyDays = (): DayHours[] => {
@@ -300,6 +310,7 @@ const HoursPage = () => {
         afternoonIn: "",
         afternoonOut: "",
         total: "",
+        absenceType: "none",
       });
     }
     return arr;
@@ -314,6 +325,8 @@ const HoursPage = () => {
       setDayErrors({});
       setErrorMessages([]);
       setCopiedDayIndex(null);
+      setMedicalFiles({});
+      setSelectedVacations([]);
 
       try {
         const queryMonth = monthIndex + 1; // 1-12
@@ -362,6 +375,7 @@ const HoursPage = () => {
                 afternoonIn: "",
                 afternoonOut: "",
                 total: "",
+                absenceType: "none",
               });
             } else {
               const value: DayHours = {
@@ -371,6 +385,7 @@ const HoursPage = () => {
                 afternoonIn: serverDay.afternoonIn ?? "",
                 afternoonOut: serverDay.afternoonOut ?? "",
                 total: "",
+                absenceType: "none", // el backend aún no conoce ausencias
               };
               value.total = calculateTotal(value);
               mappedDays.push(value);
@@ -405,13 +420,15 @@ const HoursPage = () => {
     for (const d of days) {
       const weekend = isWeekend(year, monthIndex, d.day);
       const future = isFutureDay(year, monthIndex, d.day);
+
       if (!weekend) {
         if (
           !future ||
           d.morningIn ||
           d.morningOut ||
           d.afternoonIn ||
-          d.afternoonOut
+          d.afternoonOut ||
+          d.absenceType !== "none"
         ) {
           workingDays++;
         }
@@ -467,15 +484,23 @@ const HoursPage = () => {
     return true;
   };
 
-  // --- Handlers ---
+  // --- Handlers de edición de día ---
 
   const handleDayChange = (index: number, newValue: DayHours) => {
     const updated = [...days];
     updated[index] = {
       ...newValue,
-      total: calculateTotal(newValue),
+      total: newValue.absenceType === "none" ? calculateTotal(newValue) : "",
     };
     setDays(updated);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleMedicalFileChange = (day: number, file: File | null) => {
+    setMedicalFiles((prev) => ({
+      ...prev,
+      [day]: file,
+    }));
     setHasUnsavedChanges(true);
   };
 
@@ -518,6 +543,7 @@ const HoursPage = () => {
         morningOut: d.morningOut || undefined,
         afternoonIn: d.afternoonIn || undefined,
         afternoonOut: d.afternoonOut || undefined,
+        // más adelante añadiremos ausencias y justificantes al backend
       })),
       signatureDataUrl,
     };
@@ -622,11 +648,9 @@ const HoursPage = () => {
   const handleGenerateTemplate = async () => {
     if (!validateAllDays()) return;
 
-    // 1) Guardar en servidor
     const okSave = await saveMonthToBackend();
     if (!okSave) return;
 
-    // 2) Generar y descargar PDF
     await downloadPdfForCurrentMonth();
   };
 
@@ -649,93 +673,194 @@ const HoursPage = () => {
     setHasUnsavedChanges(true);
   };
 
-  // --- Copiar / pegar horas ---
+  // --- Selección de vacaciones ---
 
-  const pasteFromIndex = (sourceIndex: number) => {
-    const source = days[sourceIndex];
+  const toggleVacationDay = (day: number) => {
+    // si ya está seleccionado → quitar
+    if (selectedVacations.includes(day)) {
+      setSelectedVacations(selectedVacations.filter((d) => d !== day));
+
+      const updated = [...days];
+      const index = day - 1;
+      updated[index] = {
+        ...updated[index],
+        absenceType: "none",
+      };
+      setDays(updated);
+      setHasUnsavedChanges(true);
+      return;
+    }
+
+    // si no, añadir (respetando el límite)
+    if (selectedVacations.length >= MAX_VACATION_DAYS) {
+      alert("No puedes seleccionar más de 23 días de vacaciones.");
+      return;
+    }
+
+    setSelectedVacations([...selectedVacations, day]);
+
     const updated = [...days];
+    const index = day - 1;
+    updated[index] = {
+      ...updated[index],
+      absenceType: "vacaciones",
+      morningIn: "",
+      morningOut: "",
+      afternoonIn: "",
+      afternoonOut: "",
+      total: "",
+    };
+    setDays(updated);
+    setHasUnsavedChanges(true);
+  };
 
-    let affected = 0;
+  // --- Copiar / pegar horas / ausencias ---
 
-    for (let i = sourceIndex + 1; i < updated.length; i++) {
-      const target = updated[i];
-      const dayNumber = target.day;
+  const handleCopyOrPasteDay = (index: number) => {
+  // 1) No hay origen todavía → este click selecciona el día origen
+  if (copiedDayIndex === null) {
+    const day = days[index];
 
-      const weekend = isWeekend(year, monthIndex, dayNumber);
-      const future = isFutureDay(year, monthIndex, dayNumber);
+    const hasHours =
+      day.morningIn ||
+      day.morningOut ||
+      day.afternoonIn ||
+      day.afternoonOut;
+    const hasAbsence = day.absenceType !== "none";
 
-      if (weekend || future) continue;
+    if (!hasHours && !hasAbsence) {
+      alert(
+        `El día ${day.day} no tiene horas ni ausencia registrada. No hay nada que copiar.`
+      );
+      return;
+    }
 
-      const hasAnyExisting =
-        target.morningIn ||
-        target.morningOut ||
-        target.afternoonIn ||
-        target.afternoonOut;
+    // Si hay horas, comprobamos que sean coherentes
+    if (hasHours) {
+      const { errors } = validateDay(day);
+      if (errors.length > 0) {
+        alert(
+          `No se puede usar el día ${day.day} como origen porque tiene errores:\n\n- ${errors.join(
+            "\n- "
+          )}`
+        );
+        return;
+      }
+    }
 
-      if (hasAnyExisting) continue;
+    setCopiedDayIndex(index);
+    return;
+  }
 
-      const newDay: DayHours = {
+  // 2) Ya hay origen → este click pega en el rango
+  const sourceIndex = copiedDayIndex;
+
+  // Si clicas otra vez en el origen, cancelamos modo copia
+  if (sourceIndex === index) {
+    setCopiedDayIndex(null);
+    return;
+  }
+
+  const source = days[sourceIndex];
+  const from = Math.min(sourceIndex, index);
+  const to = Math.max(sourceIndex, index);
+
+  const updated = [...days];
+  let affected = 0;
+
+  // Vacaciones: contamos solo días con ausencia "vacaciones"
+  const currentVacationDays = days.filter(
+    (d) => d.absenceType === "vacaciones"
+  ).length;
+  let remainingVacations = MAX_VACATION_DAYS - currentVacationDays;
+
+  for (let i = from + 1; i <= to; i++) {
+    const target = updated[i];
+    const dayNumber = target.day;
+
+    const weekend = isWeekend(year, monthIndex, dayNumber);
+    if (weekend) continue; // nunca tocamos fines de semana
+
+    const future = isFutureDay(year, monthIndex, dayNumber);
+
+    // Si el origen tiene HORAS y el día destino es futuro → no pegamos horas en futuros
+    if (source.absenceType === "none" && future) {
+      continue;
+    }
+
+    let newDay: DayHours;
+
+    if (source.absenceType !== "none") {
+      // Estamos copiando una AUSENCIA
+
+      if (source.absenceType === "vacaciones") {
+        const alreadyVacation = target.absenceType === "vacaciones";
+
+        // Solo consumimos días del cupo si el destino no era ya vacaciones
+        if (!alreadyVacation) {
+          if (remainingVacations <= 0) {
+            // No nos quedan días de vacaciones disponibles → saltamos este día
+            continue;
+          }
+          remainingVacations--;
+        }
+      }
+
+      // Copiamos la ausencia y limpiamos horas
+      newDay = {
+        ...target,
+        morningIn: "",
+        morningOut: "",
+        afternoonIn: "",
+        afternoonOut: "",
+        total: "",
+        absenceType: source.absenceType,
+        medicalJustificationFileName: undefined, // no copiamos justificantes
+      };
+    } else {
+      // Estamos copiando HORAS (sin ausencia)
+      newDay = {
         ...target,
         morningIn: source.morningIn,
         morningOut: source.morningOut,
         afternoonIn: source.afternoonIn,
         afternoonOut: source.afternoonOut,
         total: "",
+        absenceType: "none",
+        medicalJustificationFileName: undefined,
       };
-
       newDay.total = calculateTotal(newDay);
-      updated[i] = newDay;
-      affected++;
     }
 
-    if (affected === 0) {
-      alert(
-        "No se han encontrado días posteriores vacíos (laborables y no futuros) donde pegar las horas."
-      );
-    } else {
-      setDays(updated);
-      setHasUnsavedChanges(true);
-      alert(
-        `Horas pegadas en ${affected} día(s) posterior(es) vacíos (solo laborables, no futuros).`
-      );
-    }
-  };
+    updated[i] = newDay;
+    affected++;
+  }
 
-  const handleCopyOrPasteDay = (index: number) => {
-    const day = days[index];
+  if (affected === 0) {
+    alert(
+      "No se han encontrado días válidos en el rango seleccionado para pegar."
+    );
+  } else {
+    alert(`Datos aplicados en ${affected} día(s) dentro del rango seleccionado.`);
+    setDays(updated);
+    setHasUnsavedChanges(true);
+  }
 
-    if (copiedDayIndex === index) {
-      pasteFromIndex(index);
-      return;
-    }
+  // Salimos del modo copia
+  setCopiedDayIndex(null);
+};
 
-    const hasAny =
-      day.morningIn || day.morningOut || day.afternoonIn || day.afternoonOut;
-
-    if (!hasAny) {
-      alert(
-        `El día ${day.day} no tiene horas registradas. Registra las horas primero para poder copiarlas.`
-      );
-      return;
-    }
-
-    const { errors } = validateDay(day);
-    if (errors.length > 0) {
-      alert(
-        `No se puede usar el día ${day.day} como origen porque tiene errores:\n\n- ${errors.join(
-          "\n- "
-        )}`
-      );
-      return;
-    }
-
-    setCopiedDayIndex(index);
-  };
 
   const handleClearDay = (index: number) => {
     const d = days[index];
     const hasAny =
-      d.morningIn || d.morningOut || d.afternoonIn || d.afternoonOut;
+      d.morningIn ||
+      d.morningOut ||
+      d.afternoonIn ||
+      d.afternoonOut ||
+      d.absenceType !== "none" ||
+      d.medicalJustificationFileName;
+
     if (!hasAny) return;
 
     const updated = [...days];
@@ -746,9 +871,21 @@ const HoursPage = () => {
       afternoonIn: "",
       afternoonOut: "",
       total: "",
+      absenceType: "none",
+      medicalJustificationFileName: undefined,
     };
     setDays(updated);
     setHasUnsavedChanges(true);
+
+    setMedicalFiles((prev) => {
+      const next = { ...prev };
+      delete next[d.day];
+      return next;
+    });
+
+    if (selectedVacations.includes(d.day)) {
+      setSelectedVacations(selectedVacations.filter((x) => x !== d.day));
+    }
 
     if (dayErrors[d.day]) {
       const newErrors = { ...dayErrors };
@@ -851,6 +988,14 @@ const HoursPage = () => {
               <button
                 style={actionButtonStyle}
                 type="button"
+                onClick={() => setIsVacationModalOpen(true)}
+              >
+                Seleccionar vacaciones
+              </button>
+
+              <button
+                style={actionButtonStyle}
+                type="button"
                 onClick={() => setIsSignatureModalOpen(true)}
               >
                 {signatureDataUrl ? "Modificar firma" : "Registrar firma"}
@@ -920,6 +1065,8 @@ const HoursPage = () => {
                 <th style={thStyle}>Firma</th>
                 {/* Total */}
                 <th style={thStyle}>Total</th>
+                {/* Ausencia */}
+                <th style={thStyle}>Ausencia</th>
                 {/* Acción copiar/pegar */}
                 <th style={thStyle}>Copiar / pegar</th>
                 {/* Acción limpiar */}
@@ -954,9 +1101,11 @@ const HoursPage = () => {
                     weekdayLabel={weekdayLabel}
                     signatureDataUrl={signatureForRow}
                     onCopyOrPasteClick={() => handleCopyOrPasteDay(idx)}
-                    isCopySource={copiedDayIndex === idx}
+                    // Cuando hay un día copiado, TODOS los botones muestran "Pegar"
+                    isCopySource={copiedDayIndex !== null}
                     hasError={hasError}
                     onClearClick={() => handleClearDay(idx)}
+                    onMedicalFileChange={handleMedicalFileChange}
                   />
                 );
               })}
@@ -1006,25 +1155,61 @@ const HoursPage = () => {
             />{" "}
             Días futuros (no editables)
           </div>
+          <div style={{ marginTop: "0.15rem" }}>
+            <span
+              style={{
+                display: "inline-block",
+                width: "12px",
+                height: "12px",
+                backgroundColor: "#bfdbfe",
+                border: "1px solid #60a5fa",
+                marginRight: "0.25rem",
+                verticalAlign: "middle",
+              }}
+            />{" "}
+            Días con vacaciones
+          </div>
+          <div style={{ marginTop: "0.15rem" }}>
+            <span
+              style={{
+                display: "inline-block",
+                width: "12px",
+                height: "12px",
+                backgroundColor: "#e9d5ff",
+                border: "1px solid #c4b5fd",
+                marginRight: "0.25rem",
+                verticalAlign: "middle",
+              }}
+            />{" "}
+            Día no lectivo
+          </div>
+          <div style={{ marginTop: "0.15rem" }}>
+            <span
+              style={{
+                display: "inline-block",
+                width: "12px",
+                height: "12px",
+                backgroundColor: "#fecdd3",
+                border: "1px solid #fca5a5",
+                marginRight: "0.25rem",
+                verticalAlign: "middle",
+              }}
+            />{" "}
+            Ausencia médica
+          </div>
         </div>
 
         <section style={footerBarStyle}>
-          <div>
-            {isLastDayOfCurrentMonth ? (
-              <span>Hoy es el último día del mes. Puedes cerrar la jornada.</span>
-            ) : (
-              <span>
-                Solo se debería generar la plantilla el último día del mes.
-              </span>
-            )}
+          <div style={{ whiteSpace: "nowrap" }}>
+            Puedes generar el PDF en cualquier momento.
           </div>
           <button
             style={{
               ...primaryButtonStyle,
-              opacity: isLastDayOfCurrentMonth ? 1 : 0.6,
-              cursor: isLastDayOfCurrentMonth ? "pointer" : "not-allowed",
+              opacity: isLoadingMonth ? 0.6 : 1,
+              cursor: isLoadingMonth ? "not-allowed" : "pointer",
             }}
-            disabled={!isLastDayOfCurrentMonth || isLoadingMonth}
+            disabled={isLoadingMonth}
             onClick={handleGenerateTemplate}
           >
             Generar plantilla (descargar PDF)
@@ -1036,6 +1221,16 @@ const HoursPage = () => {
         isOpen={isSignatureModalOpen}
         onClose={() => setIsSignatureModalOpen(false)}
         onSave={handleSignatureSaved}
+      />
+
+      <VacationModal
+        isOpen={isVacationModalOpen}
+        onClose={() => setIsVacationModalOpen(false)}
+        year={year}
+        monthIndex={monthIndex}
+        selectedVacations={selectedVacations}
+        onToggleDay={toggleVacationDay}
+        maxDays={MAX_VACATION_DAYS}
       />
     </div>
   );
