@@ -221,15 +221,15 @@ const validateDay = (value: DayHours): DayValidationResult => {
 
   const morningMinutes =
     value.morningIn &&
-    value.morningOut &&
-    diffMinutes(value.morningIn, value.morningOut) > 0
+      value.morningOut &&
+      diffMinutes(value.morningIn, value.morningOut) > 0
       ? diffMinutes(value.morningIn, value.morningOut)
       : 0;
 
   const afternoonMinutes =
     value.afternoonIn &&
-    value.afternoonOut &&
-    diffMinutes(value.afternoonIn, value.afternoonOut) > 0
+      value.afternoonOut &&
+      diffMinutes(value.afternoonIn, value.afternoonOut) > 0
       ? diffMinutes(value.afternoonIn, value.afternoonOut)
       : 0;
 
@@ -252,6 +252,8 @@ type DayPayloadFromApi = {
   morningOut?: string;
   afternoonIn?: string;
   afternoonOut?: string;
+  absenceType?: "none" | "vacaciones" | "dia_no_lectivo" | "ausencia_medica";
+  totalMinutes?: number;
 };
 
 type MonthFromApi = {
@@ -260,6 +262,7 @@ type MonthFromApi = {
   days: DayPayloadFromApi[];
   signatureDataUrl?: string | null;
 };
+
 
 const HoursPage = () => {
   const { user, logout } = useAuth();
@@ -387,7 +390,8 @@ const HoursPage = () => {
                 afternoonIn: serverDay.afternoonIn ?? "",
                 afternoonOut: serverDay.afternoonOut ?? "",
                 total: "",
-                absenceType: "none", // el backend aún no conoce ausencias
+                // absenceType: "none", // el backend aún no conoce ausencias
+                absenceType: serverDay.absenceType ?? "none",
               };
               value.total = calculateTotal(value);
               mappedDays.push(value);
@@ -510,7 +514,7 @@ const HoursPage = () => {
     if (!hasUnsavedChanges) return true;
     return window.confirm(
       "Tienes cambios en este mes que aún no has enviado. " +
-        "¿Quieres cambiar de mes igualmente?"
+      "¿Quieres cambiar de mes igualmente?"
     );
   };
 
@@ -545,7 +549,8 @@ const HoursPage = () => {
         morningOut: d.morningOut || undefined,
         afternoonIn: d.afternoonIn || undefined,
         afternoonOut: d.afternoonOut || undefined,
-        // más adelante añadiremos ausencias y justificantes al backend
+        // Enviamos también el tipo de ausencia; el backend recalcula el total
+        absenceType: d.absenceType,
       })),
       signatureDataUrl,
     };
@@ -719,138 +724,138 @@ const HoursPage = () => {
   // --- Copiar / pegar horas / ausencias ---
 
   const handleCopyOrPasteDay = (index: number) => {
-  // 1) No hay origen todavía → este click selecciona el día origen
-  if (copiedDayIndex === null) {
-    const day = days[index];
+    // 1) No hay origen todavía → este click selecciona el día origen
+    if (copiedDayIndex === null) {
+      const day = days[index];
 
-    const hasHours =
-      day.morningIn ||
-      day.morningOut ||
-      day.afternoonIn ||
-      day.afternoonOut;
-    const hasAbsence = day.absenceType !== "none";
+      const hasHours =
+        day.morningIn ||
+        day.morningOut ||
+        day.afternoonIn ||
+        day.afternoonOut;
+      const hasAbsence = day.absenceType !== "none";
 
-    if (!hasHours && !hasAbsence) {
-      alert(
-        `El día ${day.day} no tiene horas ni ausencia registrada. No hay nada que copiar.`
-      );
-      return;
-    }
-
-    // Si hay horas, comprobamos que sean coherentes
-    if (hasHours) {
-      const { errors } = validateDay(day);
-      if (errors.length > 0) {
+      if (!hasHours && !hasAbsence) {
         alert(
-          `No se puede usar el día ${day.day} como origen porque tiene errores:\n\n- ${errors.join(
-            "\n- "
-          )}`
+          `El día ${day.day} no tiene horas ni ausencia registrada. No hay nada que copiar.`
         );
         return;
       }
-    }
 
-    setCopiedDayIndex(index);
-    return;
-  }
-
-  // 2) Ya hay origen → este click pega en el rango
-  const sourceIndex = copiedDayIndex;
-
-  // Si clicas otra vez en el origen, cancelamos modo copia
-  if (sourceIndex === index) {
-    setCopiedDayIndex(null);
-    return;
-  }
-
-  const source = days[sourceIndex];
-  const from = Math.min(sourceIndex, index);
-  const to = Math.max(sourceIndex, index);
-
-  const updated = [...days];
-  let affected = 0;
-
-  // Vacaciones: contamos solo días con ausencia "vacaciones"
-  const currentVacationDays = days.filter(
-    (d) => d.absenceType === "vacaciones"
-  ).length;
-  let remainingVacations = MAX_VACATION_DAYS - currentVacationDays;
-
-  for (let i = from + 1; i <= to; i++) {
-    const target = updated[i];
-    const dayNumber = target.day;
-
-    const weekend = isWeekend(year, monthIndex, dayNumber);
-    if (weekend) continue; // nunca tocamos fines de semana
-
-    const future = isFutureDay(year, monthIndex, dayNumber);
-
-    // Si el origen tiene HORAS y el día destino es futuro → no pegamos horas en futuros
-    if (source.absenceType === "none" && future) {
-      continue;
-    }
-
-    let newDay: DayHours;
-
-    if (source.absenceType !== "none") {
-      // Estamos copiando una AUSENCIA
-
-      if (source.absenceType === "vacaciones") {
-        const alreadyVacation = target.absenceType === "vacaciones";
-
-        // Solo consumimos días del cupo si el destino no era ya vacaciones
-        if (!alreadyVacation) {
-          if (remainingVacations <= 0) {
-            // No nos quedan días de vacaciones disponibles → saltamos este día
-            continue;
-          }
-          remainingVacations--;
+      // Si hay horas, comprobamos que sean coherentes
+      if (hasHours) {
+        const { errors } = validateDay(day);
+        if (errors.length > 0) {
+          alert(
+            `No se puede usar el día ${day.day} como origen porque tiene errores:\n\n- ${errors.join(
+              "\n- "
+            )}`
+          );
+          return;
         }
       }
 
-      // Copiamos la ausencia y limpiamos horas
-      newDay = {
-        ...target,
-        morningIn: "",
-        morningOut: "",
-        afternoonIn: "",
-        afternoonOut: "",
-        total: "",
-        absenceType: source.absenceType,
-        medicalJustificationFileName: undefined, // no copiamos justificantes
-      };
-    } else {
-      // Estamos copiando HORAS (sin ausencia)
-      newDay = {
-        ...target,
-        morningIn: source.morningIn,
-        morningOut: source.morningOut,
-        afternoonIn: source.afternoonIn,
-        afternoonOut: source.afternoonOut,
-        total: "",
-        absenceType: "none",
-        medicalJustificationFileName: undefined,
-      };
-      newDay.total = calculateTotal(newDay);
+      setCopiedDayIndex(index);
+      return;
     }
 
-    updated[i] = newDay;
-    affected++;
-  }
+    // 2) Ya hay origen → este click pega en el rango
+    const sourceIndex = copiedDayIndex;
 
-  if (affected === 0) {
-    alert(
-      "No se han encontrado días válidos en el rango seleccionado para pegar."
-    );
-  } else {
-    alert(`Datos aplicados en ${affected} día(s) dentro del rango seleccionado.`);
-    setDays(updated);
-    setHasUnsavedChanges(true);
-  }
+    // Si clicas otra vez en el origen, cancelamos modo copia
+    if (sourceIndex === index) {
+      setCopiedDayIndex(null);
+      return;
+    }
 
-  // Salimos del modo copia
-  setCopiedDayIndex(null);
-};
+    const source = days[sourceIndex];
+    const from = Math.min(sourceIndex, index);
+    const to = Math.max(sourceIndex, index);
+
+    const updated = [...days];
+    let affected = 0;
+
+    // Vacaciones: contamos solo días con ausencia "vacaciones"
+    const currentVacationDays = days.filter(
+      (d) => d.absenceType === "vacaciones"
+    ).length;
+    let remainingVacations = MAX_VACATION_DAYS - currentVacationDays;
+
+    for (let i = from + 1; i <= to; i++) {
+      const target = updated[i];
+      const dayNumber = target.day;
+
+      const weekend = isWeekend(year, monthIndex, dayNumber);
+      if (weekend) continue; // nunca tocamos fines de semana
+
+      const future = isFutureDay(year, monthIndex, dayNumber);
+
+      // Si el origen tiene HORAS y el día destino es futuro → no pegamos horas en futuros
+      if (source.absenceType === "none" && future) {
+        continue;
+      }
+
+      let newDay: DayHours;
+
+      if (source.absenceType !== "none") {
+        // Estamos copiando una AUSENCIA
+
+        if (source.absenceType === "vacaciones") {
+          const alreadyVacation = target.absenceType === "vacaciones";
+
+          // Solo consumimos días del cupo si el destino no era ya vacaciones
+          if (!alreadyVacation) {
+            if (remainingVacations <= 0) {
+              // No nos quedan días de vacaciones disponibles → saltamos este día
+              continue;
+            }
+            remainingVacations--;
+          }
+        }
+
+        // Copiamos la ausencia y limpiamos horas
+        newDay = {
+          ...target,
+          morningIn: "",
+          morningOut: "",
+          afternoonIn: "",
+          afternoonOut: "",
+          total: "",
+          absenceType: source.absenceType,
+          medicalJustificationFileName: undefined, // no copiamos justificantes
+        };
+      } else {
+        // Estamos copiando HORAS (sin ausencia)
+        newDay = {
+          ...target,
+          morningIn: source.morningIn,
+          morningOut: source.morningOut,
+          afternoonIn: source.afternoonIn,
+          afternoonOut: source.afternoonOut,
+          total: "",
+          absenceType: "none",
+          medicalJustificationFileName: undefined,
+        };
+        newDay.total = calculateTotal(newDay);
+      }
+
+      updated[i] = newDay;
+      affected++;
+    }
+
+    if (affected === 0) {
+      alert(
+        "No se han encontrado días válidos en el rango seleccionado para pegar."
+      );
+    } else {
+      alert(`Datos aplicados en ${affected} día(s) dentro del rango seleccionado.`);
+      setDays(updated);
+      setHasUnsavedChanges(true);
+    }
+
+    // Salimos del modo copia
+    setCopiedDayIndex(null);
+  };
 
 
   const handleClearDay = (index: number) => {

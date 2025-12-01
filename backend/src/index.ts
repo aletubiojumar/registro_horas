@@ -20,6 +20,8 @@ interface User {
   vacationDaysPerYear?: number;
 }
 
+type AbsenceType = "none" | "vacation" | "nonWorkingDay" | "medical";
+
 interface StoredDay {
   day: number;
   morningIn?: string;
@@ -27,7 +29,7 @@ interface StoredDay {
   afternoonIn?: string;
   afternoonOut?: string;
   totalMinutes?: number;
-  absenceType?: "none" | "vacation" | "nonWorkingDay" | "medical";
+  absenceType?: AbsenceType
   hasSignature?: boolean;
 }
 
@@ -241,6 +243,7 @@ app.get("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
 });
 
 // PUT guardar horas del mes del usuario logueado
+// PUT guardar horas del mes del usuario logueado
 app.put("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.userId;
   const { year, month, days, signatureDataUrl } = req.body as {
@@ -255,17 +258,43 @@ app.put("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
     return;
   }
 
+  const computeMinutes = (start?: string, end?: string): number => {
+    if (!start || !end) return 0;
+    const [sh, sm] = start.split(":").map(Number);
+    const [eh, em] = end.split(":").map(Number);
+    const startMin = sh * 60 + sm;
+    const endMin = eh * 60 + em;
+    return Math.max(endMin - startMin, 0);
+  };
+
   let entry = findMonthHours(userId, year, month);
   if (!entry) {
     entry = { userId, year, month, days: [], signatureDataUrl: null };
     hoursStore.push(entry);
   }
 
-  entry.days = days;
+  entry.days = days.map((d) => {
+    const absence: AbsenceType = d.absenceType ?? "none";
+
+    const morningMinutes = computeMinutes(d.morningIn, d.morningOut);
+    const afternoonMinutes = computeMinutes(d.afternoonIn, d.afternoonOut);
+
+    const totalMinutes =
+      absence !== "none" ? 0 : morningMinutes + afternoonMinutes;
+
+    return {
+      ...d,
+      absenceType: absence,
+      totalMinutes,
+      hasSignature: !!signatureDataUrl,
+    };
+  });
+
   entry.signatureDataUrl = signatureDataUrl ?? null;
 
   res.json({ ok: true });
 });
+
 
 // -------------------------
 // Generación de PDF
@@ -349,7 +378,28 @@ async function createPdfForMonth(
   y -= 24;
   drawText("Firma trabajador:", margin, y);
   if (monthData.signatureDataUrl) {
-    drawText("[firma adjunta en sistema]", margin + 120, y);
+    try {
+      // signatureDataUrl = "data:image/png;base64,AAAA..."
+      const base64 = monthData.signatureDataUrl.split(",")[1];
+      const pngBytes = Buffer.from(base64, "base64");
+      const pngImage = await pdfDoc.embedPng(pngBytes);
+
+      const scale = 0.4; // Ajusta el tamaño de la firma
+      const pngDims = pngImage.scale(scale);
+
+      const sigX = margin + 120;
+      const sigY = y - pngDims.height + 4;
+
+      page.drawImage(pngImage, {
+        x: sigX,
+        y: sigY,
+        width: pngDims.width,
+        height: pngDims.height,
+      });
+    } catch (e) {
+      console.error("Error incrustando firma en PDF:", e);
+      drawText("[firma adjunta en sistema]", margin + 120, y);
+    }
   }
 
   const pdfBytes = await pdfDoc.save();

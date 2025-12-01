@@ -84,7 +84,7 @@ const VacationModal: React.FC<VacationModalProps> = ({
         </h2>
 
         <p style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-          Selecciona hasta {maxDays} días.  
+          Selecciona hasta {maxDays} días.
           Vacaciones seleccionadas:{" "}
           <strong>{selectedVacations.length}</strong> / {maxDays}
         </p>

@@ -318,13 +318,13 @@ const DayRow: React.FC<DayRowProps> = ({
             backgroundColor: isWeekend
               ? "#f3f4f6"
               : isCopySource
-              ? "#bfdbfe"
-              : "#ffffff",
+                ? "#bfdbfe"
+                : "#ffffff",
             borderColor: isWeekend
               ? "#d1d5db"
               : isCopySource
-              ? "#60a5fa"
-              : "#d1d5db",
+                ? "#60a5fa"
+                : "#d1d5db",
             cursor: isWeekend ? "not-allowed" : "pointer",
             opacity: isWeekend ? 0.5 : 1,
           }}
