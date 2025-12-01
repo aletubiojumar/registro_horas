@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
-import type { FormEvent, CSSProperties } from "react";
+import React, { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
-const containerStyle: CSSProperties = {
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+
+const containerStyle: React.CSSProperties = {
   minHeight: "100vh",
   display: "flex",
   alignItems: "center",
@@ -11,168 +14,229 @@ const containerStyle: CSSProperties = {
   backgroundColor: "#f3f4f6",
 };
 
-const cardStyle: CSSProperties = {
+const cardStyle: React.CSSProperties = {
   width: "100%",
-  maxWidth: 400,
+  maxWidth: "400px",
   backgroundColor: "#ffffff",
-  padding: "2rem",
-  borderRadius: "0.5rem",
-  boxShadow: "0 10px 25px rgba(0, 0, 0, 0.08)",
+  borderRadius: "0.75rem",
+  boxShadow: "0 10px 25px rgba(0,0,0,0.08)",
+  padding: "1.75rem 1.5rem",
 };
 
-const labelStyle: CSSProperties = {
-  display: "block",
-  fontSize: "0.9rem",
+const titleStyle: React.CSSProperties = {
+  fontSize: "1.25rem",
+  fontWeight: 600,
   marginBottom: "0.25rem",
+};
+
+const subtitleStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: "#6b7280",
+  marginBottom: "1.25rem",
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "0.8rem",
   fontWeight: 500,
+  color: "#374151",
+  marginBottom: "0.25rem",
 };
 
-const inputStyle: CSSProperties = {
+const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "0.5rem 0.75rem",
-  borderRadius: "0.35rem",
+  padding: "0.4rem 0.5rem",
+  borderRadius: "0.375rem",
   border: "1px solid #d1d5db",
-  fontSize: "0.9rem",
-  boxSizing: "border-box",
+  fontSize: "0.85rem",
 };
 
-const buttonStyle: CSSProperties = {
+const checkboxRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.4rem",
+  fontSize: "0.8rem",
+  color: "#4b5563",
+};
+
+const buttonStyle: React.CSSProperties = {
   width: "100%",
-  padding: "0.6rem 1rem",
-  borderRadius: "0.35rem",
+  marginTop: "1rem",
+  padding: "0.5rem",
+  borderRadius: "0.375rem",
   border: "none",
   backgroundColor: "#2563eb",
   color: "#ffffff",
+  fontSize: "0.9rem",
   fontWeight: 500,
-  fontSize: "0.95rem",
   cursor: "pointer",
 };
 
-const errorStyle: CSSProperties = {
-  color: "#dc2626",
-  fontSize: "0.85rem",
-  marginTop: "0.5rem",
-};
-
-const smallTextStyle: CSSProperties = {
+const errorStyle: React.CSSProperties = {
+  marginTop: "0.75rem",
+  padding: "0.5rem",
+  borderRadius: "0.375rem",
+  backgroundColor: "#fee2e2",
+  color: "#b91c1c",
   fontSize: "0.8rem",
-  color: "#4b5563",
 };
 
-const checkboxRowStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginTop: "0.5rem",
+const footerStyle: React.CSSProperties = {
+  marginTop: "0.75rem",
+  fontSize: "0.75rem",
+  color: "#6b7280",
 };
 
-const checkboxLabelStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.35rem",
-  fontSize: "0.8rem",
-  color: "#4b5563",
-};
-
-const LoginPage = () => {
-  const { login, isLoading, user } = useAuth();
+const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user, login } = useAuth();
 
   const [username, setUsername] = useState("");
-  const [rememberUser, setRememberUser] = useState(false);
   const [password, setPassword] = useState("");
+  const [rememberUser, setRememberUser] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Al cargar la pantalla, intentar recuperar el usuario guardado
+  // Si ya hay usuario logueado, redirigir
   useEffect(() => {
-    const savedUsername = localStorage.getItem("rh_username");
-    if (savedUsername) {
-      setUsername(savedUsername);
+    if (!user) return;
+    if (user.role === "admin") {
+      navigate("/admin", { replace: true });
+    } else {
+      navigate("/horas", { replace: true });
+    }
+  }, [user, navigate]);
+
+  // Cargar usuario recordado
+  useEffect(() => {
+    const remembered = localStorage.getItem("rememberedUser");
+    if (remembered) {
+      setUsername(remembered);
       setRememberUser(true);
     }
   }, []);
 
-  // Si ya hay usuario logueado, redirigir directamente a /horas
-  useEffect(() => {
-    if (user) {
-      navigate("/horas");
-    }
-  }, [user, navigate]);
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-    setIsSubmitting(true);
 
-    const trimmedUsername = username.trim();
-    const ok = await login(trimmedUsername, password);
-
-    setIsSubmitting(false);
-
-    if (!ok) {
-      // El AuthContext ya muestra un alert con el mensaje del backend,
-      // aquí mostramos un mensaje genérico bajo el formulario.
-      setErrorMsg("No se ha podido iniciar sesión. Revisa usuario y contraseña.");
+    if (!username || !password) {
+      setErrorMsg("Introduce usuario y contraseña.");
       return;
     }
 
-    // Login correcto → gestionar "recordar usuario"
-    if (rememberUser) {
-      localStorage.setItem("rh_username", trimmedUsername);
-    } else {
-      localStorage.removeItem("rh_username");
-    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+      });
 
-    navigate("/horas");
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        const message =
+          err?.error || "No se ha podido iniciar sesión. Revisa las credenciales.";
+        setErrorMsg(message);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const data = await res.json();
+
+      // data = { token, user: { id, username, fullName, role } }
+      login({
+        id: data.user.id,
+        username: data.user.username,
+        fullName: data.user.fullName,
+        role: data.user.role,
+        token: data.token,
+      });
+
+      if (rememberUser) {
+        localStorage.setItem("rememberedUser", username);
+      } else {
+        localStorage.removeItem("rememberedUser");
+      }
+
+      if (data.user.role === "admin") {
+        navigate("/admin", { replace: true });
+      } else {
+        navigate("/horas", { replace: true });
+      }
+    } catch (err) {
+      console.error("Error en login:", err);
+      setErrorMsg("Error de conexión con el servidor.");
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div style={containerStyle}>
       <div style={cardStyle}>
-        <h1
-          style={{
-            fontSize: "1.5rem",
-            marginBottom: "1.5rem",
-            textAlign: "center",
-          }}
-        >
-          Control de horas
-        </h1>
+        <h1 style={titleStyle}>Acceso al registro de jornada</h1>
+        <p style={subtitleStyle}>
+          Introduce tus credenciales corporativas para acceder.
+        </p>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: "1rem" }}>
-            <label htmlFor="username" style={labelStyle}>
+          <div style={{ marginBottom: "0.75rem" }}>
+            <label style={labelStyle} htmlFor="username">
               Usuario
             </label>
             <input
               id="username"
               type="text"
               style={inputStyle}
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
             />
           </div>
 
           <div style={{ marginBottom: "0.5rem" }}>
-            <label htmlFor="password" style={labelStyle}>
+            <label style={labelStyle} htmlFor="password">
               Contraseña
             </label>
-            <input
-              id="password"
-              type={showPassword ? "text" : "password"}
-              style={inputStyle}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-            />
+            <div style={{ display: "flex", gap: "0.25rem" }}>
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                style={{ ...inputStyle, flexGrow: 1 }}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                style={{
+                  padding: "0.4rem 0.6rem",
+                  fontSize: "0.75rem",
+                  borderRadius: "0.375rem",
+                  border: "1px solid #d1d5db",
+                  backgroundColor: "#f9fafb",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+                onClick={() => setShowPassword((v) => !v)}
+              >
+                {showPassword ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
           </div>
 
-          <div style={checkboxRowStyle}>
-            <label style={checkboxLabelStyle}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: "0.25rem",
+              marginBottom: "0.25rem",
+            }}
+          >
+            <label style={checkboxRowStyle}>
               <input
                 type="checkbox"
                 checked={rememberUser}
@@ -180,31 +244,28 @@ const LoginPage = () => {
               />
               Recordar usuario
             </label>
-
-            <label style={checkboxLabelStyle}>
-              <input
-                type="checkbox"
-                checked={showPassword}
-                onChange={(e) => setShowPassword(e.target.checked)}
-              />
-              Mostrar contraseña
-            </label>
           </div>
-
-          {errorMsg && <div style={errorStyle}>{errorMsg}</div>}
 
           <button
             type="submit"
-            style={buttonStyle}
-            disabled={isSubmitting || isLoading}
+            style={{
+              ...buttonStyle,
+              opacity: isSubmitting ? 0.7 : 1,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+            }}
+            disabled={isSubmitting}
           >
-            {isSubmitting || isLoading ? "Entrando..." : "Iniciar sesión"}
+            {isSubmitting ? "Accediendo..." : "Entrar"}
           </button>
 
-          <p style={{ ...smallTextStyle, marginTop: "0.75rem" }}>
-            (En esta demo los usuarios válidos son <b>alejandro / 1234</b> y{" "}
-            <b>demo / demo123</b>).
-          </p>
+          {errorMsg && <div style={errorStyle}>{errorMsg}</div>}
+
+          <div style={footerStyle}>
+            <span style={{ color: "#9ca3af" }}>
+              Si no tienes usuario o tienes problemas de acceso, contacta con
+              administración.
+            </span>
+          </div>
         </form>
       </div>
     </div>

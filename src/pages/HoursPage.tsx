@@ -262,7 +262,9 @@ type MonthFromApi = {
 };
 
 const HoursPage = () => {
-  const { user, token, logout } = useAuth();
+  const { user, logout } = useAuth();
+  const token = user?.token ?? "";
+
   const navigate = useNavigate();
 
   const today = new Date();

@@ -1,135 +1,44 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-} from "react";
+import React, { createContext, useContext, useState } from "react";
 import type { ReactNode } from "react";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
-
-type AuthUser = {
-  id: number;
+export interface LoggedUser {
+  id: string;
   username: string;
   fullName: string;
-};
+  role: "worker" | "admin";
+  token: string;
+}
 
-type AuthContextType = {
-  user: AuthUser | null;
-  token: string | null;
-  isLoading: boolean;
-  login: (username: string, password: string) => Promise<boolean>;
+interface AuthContextProps {
+  user: LoggedUser | null;
+  login: (user: LoggedUser) => void;
   logout: () => void;
-};
+}
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextProps | undefined>(undefined);
 
-type Props = {
-  children: ReactNode;
-};
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<LoggedUser | null>(null);
 
-const AUTH_TOKEN_KEY = "authToken";
+  const login = (loggedUser: LoggedUser) => {
+    setUser(loggedUser);
+  };
 
-export const AuthProvider = ({ children }: Props) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const logout = useCallback(() => {
+  const logout = () => {
     setUser(null);
-    setToken(null);
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-  }, []);
-
-  // Restaurar sesión desde localStorage al cargar la app
-  useEffect(() => {
-    const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
-    if (!storedToken) {
-      setIsLoading(false);
-      return;
-    }
-
-    const restoreSession = async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/auth/me`, {
-          headers: {
-            Authorization: `Bearer ${storedToken}`,
-          },
-        });
-
-        if (!res.ok) {
-          logout();
-          return;
-        }
-
-        const data = (await res.json()) as AuthUser;
-        setUser(data);
-        setToken(storedToken);
-      } catch (error) {
-        console.error("Error restaurando sesión:", error);
-        logout();
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    restoreSession();
-  }, [logout]);
-
-  const login = async (username: string, password: string): Promise<boolean> => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (!res.ok) {
-        const errorBody = (await res.json().catch(() => null)) as
-          | { message?: string }
-          | null;
-        const msg =
-          errorBody?.message ?? "Error al iniciar sesión. Revisa tus credenciales.";
-        alert(msg);
-        return false;
-      }
-
-      const data = (await res.json()) as {
-        token: string;
-        user: AuthUser;
-      };
-
-      setUser(data.user);
-      setToken(data.token);
-      localStorage.setItem(AUTH_TOKEN_KEY, data.token);
-
-      return true;
-    } catch (error) {
-      console.error("Error en login:", error);
-      alert("No se ha podido conectar con el servidor.");
-      return false;
-    }
   };
 
-  const value: AuthContextType = {
-    user,
-    token,
-    isLoading,
-    login,
-    logout,
-  };
+  return (
+    <AuthContext.Provider value={{ user, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
-
-export const useAuth = (): AuthContextType => {
+export function useAuth(): AuthContextProps {
   const ctx = useContext(AuthContext);
   if (!ctx) {
-    throw new Error("useAuth debe usarse dentro de un AuthProvider");
+    throw new Error("useAuth must be used inside AuthProvider");
   }
   return ctx;
-};
+}
