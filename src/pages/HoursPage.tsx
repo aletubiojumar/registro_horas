@@ -6,6 +6,7 @@ import DayRow from "../components/DayRow";
 import type { DayHours } from "../components/DayRow";
 import SignatureModal from "../components/SignatureModal";
 import VacationModal from "../components/VacationModal";
+import ProfilePage from "./ProfilePage";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
@@ -926,16 +927,16 @@ const HoursPage = () => {
           </div>
         </div>
         <button
-          onClick={handleLogout}
+          onClick={() => navigate("/perfil")}
           style={{
             fontSize: "0.8rem",
-            color: "#dc2626",
+            color: "#2563eb",
             background: "none",
             border: "none",
             cursor: "pointer",
           }}
         >
-          Cerrar sesión
+          Volver al área personal
         </button>
       </header>
 
@@ -995,10 +996,18 @@ const HoursPage = () => {
               <button
                 style={actionButtonStyle}
                 type="button"
+                onClick={() => navigate("/ProfilePage")}
+              >
+                Área personal
+              </button>
+
+              {/* <button
+                style={actionButtonStyle}
+                type="button"
                 onClick={() => setIsVacationModalOpen(true)}
               >
                 Seleccionar vacaciones
-              </button>
+              </button> */}
 
               <button
                 style={actionButtonStyle}

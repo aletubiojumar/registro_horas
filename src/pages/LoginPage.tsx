@@ -104,7 +104,7 @@ const LoginPage: React.FC = () => {
     if (user.role === "admin") {
       navigate("/admin", { replace: true });
     } else {
-      navigate("/horas", { replace: true });
+      navigate("/perfil", { replace: true });
     }
   }, [user, navigate]);
 
@@ -156,17 +156,21 @@ const LoginPage: React.FC = () => {
         token: data.token,
       });
 
+      console.log("Rol recibido:", data.user.role);
+      if (data.user.role === "admin") {
+        console.log("Redirigiendo a /admin");
+        navigate("/admin", { replace: true });
+      } else {
+        console.log("Redirigiendo a /perfil");
+        navigate("/perfil", { replace: true });
+      }
+
       if (rememberUser) {
         localStorage.setItem("rememberedUser", username);
       } else {
         localStorage.removeItem("rememberedUser");
       }
 
-      if (data.user.role === "admin") {
-        navigate("/admin", { replace: true });
-      } else {
-        navigate("/horas", { replace: true });
-      }
     } catch (err) {
       console.error("Error en login:", err);
       setErrorMsg("Error de conexión con el servidor.");

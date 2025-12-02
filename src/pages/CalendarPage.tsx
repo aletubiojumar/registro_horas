@@ -1,0 +1,816 @@
+import React, { useEffect, useState } from "react";
+import { useAuth } from "../auth/AuthContext";
+import { useNavigate } from "react-router-dom";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+
+type EventType = "visita" | "juicio" | "vacaciones" | "cita médica" | "otros";
+type Visibility = "only-me" | "all" | "some";
+
+interface CalendarEvent {
+    id: string;
+    ownerId: string;
+    type: EventType;
+    date: string; // YYYY-MM-DD
+    status?: "pending" | "approved";
+    visibility: Visibility;
+    viewers?: string[];
+    medicalJustificationFileName?: string;
+}
+
+const CalendarPage: React.FC = () => {
+    const { user } = useAuth();
+    const navigate = useNavigate();
+
+    const [events, setEvents] = useState<CalendarEvent[]>([]);
+    const [selectedDay, setSelectedDay] = useState<string | null>(null);
+    const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+    const [medicalFile, setMedicalFile] = useState<File | null>(null);
+    const [vacationDaysLeft, setVacationDaysLeft] = useState<number>(0);
+    const [users, setUsers] = useState<{ id: string; fullName: string }[]>([]);
+    const [visibility, setVisibility] = useState<Visibility>("only-me");
+    const [viewers, setViewers] = useState<string[]>([]);
+
+    // Mes actual
+    const [currentMonth, setCurrentMonth] = useState(11); // 0-11 (diciembre por defecto)
+    const [currentYear, setCurrentYear] = useState(2025);
+
+    // Modo selección de fin de vacaciones
+    const [vacationMode, setVacationMode] = useState<null | string>(null);
+
+    // Colores por tipo
+    const colorByType: Record<EventType, string> = {
+        visita: "#dcfce7",      // verde claro
+        juicio: "#e9d5ff",      // morado claro
+        vacaciones: "#fed7aa",  // naranja (pending) / azul (approved)
+        "cita médica": "#fecdd3", // rosa
+        otros: "#e5e7eb",        // gris
+    };
+
+    // Helper para saber si un día es fin de semana
+    const isWeekend = (date: string): boolean => {
+        const d = new Date(date);
+        const dayOfWeek = d.getDay();
+        return dayOfWeek === 0 || dayOfWeek === 6;
+    };
+
+    // Helper para saber si un día es futuro
+    const isFutureDay = (date: string): boolean => {
+        const today = new Date();
+        const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const thisDay = new Date(date);
+        return thisDay > todayDateOnly;
+    };
+
+    // Cargar usuarios (sin admin ni yo)
+    useEffect(() => {
+        if (!user) return;
+        fetch(`${API_BASE_URL}/calendar/users`, {
+            headers: { Authorization: `Bearer ${user.token}` },
+        })
+            .then((r) => r.json())
+            .then((data) => {
+                const filtered = data.users.filter((u: any) => u.id !== user.id && u.role !== "admin");
+                setUsers(filtered);
+            })
+            .catch(() => alert("Error al cargar usuarios"));
+    }, [user]);
+
+    // Cargar eventos visibles y días de vacaciones restantes
+    useEffect(() => {
+        if (!user) return;
+        Promise.all([
+            fetch(`${API_BASE_URL}/calendar/events`, {
+                headers: { Authorization: `Bearer ${user.token}` },
+            }).then((r) => r.json()),
+            fetch(`${API_BASE_URL}/calendar/vacation-days-left`, {
+                headers: { Authorization: `Bearer ${user.token}` },
+            }).then((r) => r.json()),
+        ])
+            .then(([evRes, vacRes]) => {
+                setEvents(evRes.events);
+                setVacationDaysLeft(vacRes.daysLeft);
+            })
+            .catch(() => alert("Error al cargar datos"));
+    }, [user, currentMonth, currentYear]);
+
+    // Mes anterior / siguiente
+    const handlePrevMonth = () => {
+        if (currentMonth === 0) {
+            setCurrentMonth(11);
+            setCurrentYear((y) => y - 1);
+        } else {
+            setCurrentMonth((m) => m - 1);
+        }
+    };
+    const handleNextMonth = () => {
+        if (currentMonth === 11) {
+            setCurrentMonth(0);
+            setCurrentYear((y) => y + 1);
+        } else {
+            setCurrentMonth((m) => m + 1);
+        }
+    };
+
+    // Click en día → menú rápido o selección de fin
+    const handleDayClick = (day: number) => {
+        const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+        if (vacationMode) {
+            // Modo selección de FIN
+            if (new Date(dateStr) < new Date(vacationMode)) {
+                alert("El día de fin debe ser igual o posterior al de inicio");
+                return;
+            }
+            // Enviar rango completo
+            createVacationRangeFromTo(vacationMode, dateStr);
+            setVacationMode(null);
+        } else {
+            // Modo normal
+            setSelectedDay(dateStr);
+            setVisibility("only-me");
+            setViewers([]);
+            setMedicalFile(null);
+        }
+    };
+
+    // Editar/Borrar evento
+    const handleEditEvent = (ev: CalendarEvent) => {
+        setEditingEvent(ev);
+    };
+
+    // Actualizar tipo (sin alertas y con actualización local inmediata)
+    const handleUpdateType = (newType: EventType) => {
+        if (!editingEvent) return;
+
+        // PROTECCIÓN: no permitir doble vacación el mismo día
+        if (newType === "vacaciones") {
+            const existing = events.filter(
+                (e) => e.date === editingEvent.date && e.type === "vacaciones" && e.id !== editingEvent.id
+            );
+            if (existing.length > 0) {
+                alert("Ya existe un evento de vacaciones este día");
+                setEditingEvent(null);
+                return;
+            }
+            if (vacationDaysLeft <= 0) {
+                alert("No te quedan días de vacaciones");
+                setEditingEvent(null);
+                return;
+            }
+        }
+
+        // Actualización local inmediata
+        const updated: CalendarEvent = {
+            ...editingEvent,
+            type: newType,
+            status: newType === "vacaciones" ? "pending" : undefined,
+        };
+
+        // Ajustamos días localmente
+        if (editingEvent.type === "vacaciones" && editingEvent.status === "approved") {
+            setVacationDaysLeft((prev) => prev + 1);
+        }
+        if (newType === "vacaciones" && updated.status === "approved") {
+            setVacationDaysLeft((prev) => prev - 1);
+        }
+        setEvents(events.map((e) => (e.id === editingEvent.id ? updated : e)));
+
+        // Enviamos al backend (sin esperar respuesta)
+        fetch(`${API_BASE_URL}/calendar/events/${editingEvent.id}`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${user!.token}`,
+            },
+            body: JSON.stringify({ type: newType, status: updated.status }),
+        })
+            .then((r) => {
+                if (!r.ok) console.error("Error al actualizar tipo");
+            })
+            .catch((err) => console.error("Error de red", err));
+
+        // Cerramos modal sin esperar
+        setEditingEvent(null);
+    };
+
+    // Crear evento (único día)
+    const createEvent = (type: EventType) => {
+        if (!selectedDay) return;
+
+        // PROTECCIÓN: no permitir doble vacación el mismo día
+        const existingVacations = events.filter((e) => e.date === selectedDay && e.type === "vacaciones");
+        if (type === "vacaciones" && existingVacations.length > 0) {
+            alert("Ya existe un evento de vacaciones este día");
+            return;
+        }
+        if (type === "vacaciones" && vacationDaysLeft <= 0) {
+            alert("No te quedan días de vacaciones");
+            return;
+        }
+
+        const body: any = {
+            type,
+            date: selectedDay,
+            visibility,
+            viewers: visibility === "some" ? viewers : undefined,
+            status: type === "vacaciones" ? "pending" : undefined,
+        };
+
+        if (type === "cita médica" && medicalFile) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                body.medicalJustificationDataUrl = reader.result as string;
+                sendEvent(body);
+                setMedicalFile(null);
+            };
+            reader.readAsDataURL(medicalFile);
+        } else {
+            sendEvent(body);
+        }
+        setSelectedDay(null);
+    };
+
+    // Borrar evento
+    const handleDeleteEvent = (ev: CalendarEvent) => {
+        // Eliminamos localmente
+        setEvents(events.filter((e) => e.id !== ev.id));
+
+        // Si era vacación aprobada, devolvemos el día
+        if (ev.type === "vacaciones" && ev.status === "approved") {
+            setVacationDaysLeft((prev) => prev + 1);
+        }
+
+        // Enviamos al backend sin esperar
+        fetch(`${API_BASE_URL}/calendar/events/${ev.id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${user!.token}` },
+        })
+            .then((r) => {
+                if (!r.ok) console.error("Error al eliminar");
+            })
+            .catch((err) => console.error("Error de red", err));
+        setEditingEvent(null);
+    };
+
+    // Vista mensual dinámica
+    const monthDays = Array.from({ length: new Date(currentYear, currentMonth + 1, 0).getDate() }, (_, i) => i + 1);
+    const monthName = new Date(currentYear, currentMonth).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+
+    return (
+        <div style={{ minHeight: "100vh", backgroundColor: "#f3f4f6" }}>
+            {/* Header */}
+            <header style={{
+                backgroundColor: "#ffffff",
+                padding: "0.75rem 1.5rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
+            }}>
+                <div>
+                    <div style={{ fontSize: "1rem", fontWeight: 600 }}>Mi Calendario</div>
+                    <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                        Usuario: <strong>{user?.username}</strong> ({user?.fullName})
+                    </div>
+                </div>
+                <button
+                    onClick={() => navigate("/perfil")}
+                    style={{
+                        fontSize: "0.8rem",
+                        color: "#2563eb",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                    }}
+                >
+                    Volver al área personal
+                </button>
+            </header>
+
+            {/* Main */}
+            <main style={{ maxWidth: 1180, margin: "0 auto", padding: "1.5rem 0.5rem 2rem" }}>
+                {/* Selector de mes */}
+                <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "0.75rem",
+                    gap: "0.5rem",
+                    flexWrap: "wrap",
+                }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                        <button
+                            onClick={handlePrevMonth}
+                            style={{
+                                padding: "0.2rem 0.5rem",
+                                fontSize: "0.8rem",
+                                borderRadius: "0.25rem",
+                                border: "1px solid #d1d5db",
+                                backgroundColor: "#ffffff",
+                                cursor: "pointer",
+                            }}
+                        >
+                            ◀
+                        </button>
+                        <span style={{
+                            fontSize: "1rem",
+                            fontWeight: 600,
+                            textTransform: "capitalize",
+                        }}>
+                            {monthName}
+                        </span>
+                        <button
+                            onClick={handleNextMonth}
+                            style={{
+                                padding: "0.2rem 0.5rem",
+                                fontSize: "0.8rem",
+                                borderRadius: "0.25rem",
+                                border: "1px solid #d1d5db",
+                                backgroundColor: "#ffffff",
+                                cursor: "pointer",
+                            }}
+                        >
+                            ▶
+                        </button>
+                    </div>
+
+                    {/* Días de vacaciones restantes */}
+                    <div style={{ fontSize: "0.8rem", color: "#374151" }}>
+                        Días de vacaciones restantes: <strong>{vacationDaysLeft}</strong>
+                    </div>
+                </div>
+
+                {/* Modo selección fin */}
+                {vacationMode && (
+                    <div style={{
+                        marginBottom: "1rem",
+                        padding: "0.5rem 0.75rem",
+                        backgroundColor: "#dcfce7",
+                        border: "1px solid #86efac",
+                        borderRadius: "0.375rem",
+                        fontSize: "0.8rem",
+                        color: "#166534",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                    }}>
+                        <span>Selecciona el último día de vacaciones (inicio: {vacationMode}) → click en el calendario</span>
+                        <button
+                            onClick={() => setVacationMode(null)}
+                            style={{
+                                padding: "0.2rem 0.5rem",
+                                fontSize: "0.75rem",
+                                borderRadius: "0.25rem",
+                                border: "1px solid #166534",
+                                backgroundColor: "#ffffff",
+                                color: "#166534",
+                                cursor: "pointer",
+                            }}
+                        >
+                            Cancelar
+                        </button>
+                    </div>
+                )}
+
+                {/* Calendario visual */}
+                <div style={{
+                    backgroundColor: "#ffffff",
+                    borderRadius: "0.5rem",
+                    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.06)",
+                    padding: "1rem",
+                }}>
+                    {/* Cabecera días de la semana */}
+                    <div style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(7, 1fr)",
+                        gap: "0.5rem",
+                        textAlign: "center",
+                        marginBottom: "0.5rem",
+                    }}>
+                        {["L", "M", "X", "J", "V", "S", "D"].map((d) => (
+                            <div key={d} style={{
+                                fontWeight: 600,
+                                fontSize: "0.75rem",
+                                color: "#4b5563",
+                                padding: "0.25rem",
+                            }}>
+                                {d}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Días del mes */}
+                    <div style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(7, 1fr)",
+                        gap: "0.5rem",
+                        textAlign: "center",
+                    }}>
+                        {monthDays.map((day) => {
+                            const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                            const dayEvents = events.filter((e) => e.date === dateStr);
+                            const weekend = isWeekend(dateStr);
+                            const future = isFutureDay(dateStr);
+
+                            let bg = "#fff"; // valor por defecto
+
+                            // 1. Vacaciones (tienen prioridad sobre futuro y fin de semana)
+                            const vacPending = dayEvents.some((e) => e.type === "vacaciones" && e.status === "pending");
+                            const vacApproved = dayEvents.some((e) => e.type === "vacaciones" && e.status === "approved");
+
+                            if (vacApproved) {
+                                bg = "#bfdbfe";       // AZUL vacaciones aprobadas
+                            } else if (vacPending) {
+                                bg = "#fed7aa";       // NARANJA vacaciones pendientes
+                            } else if (weekend) {
+                                bg = "#fef3c7";       // AMARILLO fines de semana
+                            } else {
+                                const types = dayEvents.map((e) => e.type) as EventType[];
+                                if (types.length) {
+                                    bg = colorByType[types[0]]; // color del primer evento
+                                } else if (future) {
+                                    bg = "#e5e7eb";     // GRIS sólo si es futuro y sin eventos
+                                }
+                            }
+
+                            return (
+                                <div
+                                    key={day}
+                                    onClick={() => handleDayClick(day)}
+                                    style={{
+                                        border: "1px solid #e5e7eb",
+                                        borderRadius: "0.25rem",
+                                        padding: "0.35rem",
+                                        minHeight: 70,
+                                        backgroundColor: bg,
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        flexDirection: "column",
+                                    }}
+                                >
+                                    <div style={{ fontSize: "0.75rem", fontWeight: "bold", marginBottom: "0.25rem" }}>
+                                        {day}
+                                    </div>
+                                    {dayEvents.map((ev) => (
+                                        <button
+                                            key={ev.id}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEditEvent(ev);
+                                            }}
+                                            style={{
+                                                fontSize: "0.65rem",
+                                                marginTop: "0.15rem",
+                                                padding: "0.1rem 0.3rem",
+                                                border: "1px solid #d1d5db",
+                                                borderRadius: "0.25rem",
+                                                background: "#ffffff",
+                                                cursor: "pointer",
+                                                color: "#000",
+                                                width: "100%",
+                                                textAlign: "left",
+                                            }}
+                                            title="Click para editar o borrar"
+                                        >
+                                            {ev.type}
+                                            {ev.type === "vacaciones" && ev.status === "pending" && (
+                                                <span title="Pendiente de aprobación"> ⏳</span>
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Leyenda */}
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "#4b5563" }}>
+                    <div>
+                        <span style={{
+                            display: "inline-block",
+                            width: "12px",
+                            height: "12px",
+                            backgroundColor: "#fef3c7",
+                            border: "1px solid #e5e7eb",
+                            marginRight: "0.25rem",
+                            verticalAlign: "middle",
+                        }} />
+                        Fines de semana
+                    </div>
+                    <div style={{ marginTop: "0.15rem" }}>
+                        <span style={{
+                            display: "inline-block",
+                            width: "12px",
+                            height: "12px",
+                            backgroundColor: "#e5e7eb",
+                            border: "1px solid #d1d5db",
+                            marginRight: "0.25rem",
+                            verticalAlign: "middle",
+                        }} />
+                        Días futuros
+                    </div>
+                    <div style={{ marginTop: "0.15rem" }}>
+                        <span style={{
+                            display: "inline-block",
+                            width: "12px",
+                            height: "12px",
+                            backgroundColor: "#bfdbfe",
+                            border: "1px solid #60a5fa",
+                            marginRight: "0.25rem",
+                            verticalAlign: "middle",
+                        }} />
+                        Vacaciones aprobadas
+                    </div>
+                    <div style={{ marginTop: "0.15rem" }}>
+                        <span style={{
+                            display: "inline-block",
+                            width: "12px",
+                            height: "12px",
+                            backgroundColor: "#fed7aa",
+                            border: "1px solid #fb923c",
+                            marginRight: "0.25rem",
+                            verticalAlign: "middle",
+                        }} />
+                        Vacaciones pendientes
+                    </div>
+                </div>
+            </main>
+
+            {/* Modal ligero para editar/borrar */}
+            {editingEvent && (
+                <div
+                    style={{
+                        position: "fixed",
+                        inset: 0,
+                        backgroundColor: "rgba(0,0,0,0.4)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 999,
+                    }}
+                    onClick={() => setEditingEvent(null)}
+                >
+                    <div
+                        style={{
+                            backgroundColor: "#fff",
+                            padding: "1.5rem",
+                            borderRadius: "0.5rem",
+                            width: 320,
+                            maxHeight: 400,
+                            overflowY: "auto",
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h4 style={{ marginTop: 0, marginBottom: "1rem" }}>Editar evento del {editingEvent.date}</h4>
+                        <div style={{ marginBottom: "1rem" }}>
+                            <label>
+                                Tipo:
+                                <select
+                                    value={editingEvent.type}
+                                    onChange={(e) => handleUpdateType(e.target.value as EventType)}
+                                    style={{ width: "100%", marginTop: "0.25rem", padding: "0.35rem" }}
+                                >
+                                    {(["visita", "juicio", "vacaciones", "cita médica", "otros"] as EventType[]).map((t) => (
+                                        <option key={t} value={t}>
+                                            {t}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        </div>
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                            <button
+                                onClick={() => setEditingEvent(null)}
+                                style={{
+                                    flex: 1,
+                                    padding: "0.4rem",
+                                    borderRadius: "0.25rem",
+                                    border: "1px solid #d1d5db",
+                                    backgroundColor: "#ffffff",
+                                    cursor: "pointer",
+                                }}
+                            >
+                                Cerrar
+                            </button>
+                            <button
+                                onClick={() => handleDeleteEvent(editingEvent)}
+                                style={{
+                                    flex: 1,
+                                    padding: "0.4rem",
+                                    borderRadius: "0.25rem",
+                                    backgroundColor: "#fee2e2",
+                                    color: "#b91c1c",
+                                    border: "1px solid #fca5a5",
+                                    cursor: "pointer",
+                                }}
+                            >
+                                Borrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Menú rápido al clicar día */}
+            {selectedDay && !vacationMode && (
+                <div
+                    style={{
+                        position: "fixed",
+                        inset: 0,
+                        backgroundColor: "rgba(0,0,0,0.4)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 999,
+                    }}
+                    onClick={() => setSelectedDay(null)}
+                >
+                    <div
+                        style={{
+                            backgroundColor: "#fff",
+                            padding: "1.5rem",
+                            borderRadius: "0.5rem",
+                            width: 400,
+                            maxHeight: 500,
+                            overflowY: "auto",
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h4 style={{ marginTop: 0, marginBottom: "1rem" }}>Evento para el {selectedDay}</h4>
+
+                        {/* Selector de tipo */}
+                        <div style={{ marginBottom: "1rem" }}>
+                            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}>
+                                Tipo de evento:
+                            </label>
+                            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                                {(["visita", "juicio", "vacaciones", "cita médica", "otros"] as EventType[]).map((t) => (
+                                    <button
+                                        key={t}
+                                        onClick={() => {
+                                            if (t === "vacaciones") {
+                                                setVacationMode(selectedDay);
+                                                setSelectedDay(null);
+                                            } else {
+                                                createEvent(t);
+                                            }
+                                        }}
+                                        style={{
+                                            padding: "0.4rem 0.8rem",
+                                            fontSize: "0.8rem",
+                                            borderRadius: "0.25rem",
+                                            border: "1px solid #d1d5db",
+                                            backgroundColor: "#ffffff",
+                                            cursor: "pointer",
+                                        }}
+                                    >
+                                        {t}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Visibilidad */}
+                        <div style={{ marginBottom: "1rem" }}>
+                            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}>
+                                ¿Quién puede ver este evento?
+                            </label>
+                            <select
+                                value={visibility}
+                                onChange={(e) => setVisibility(e.target.value as Visibility)}
+                                style={{ width: "100%", padding: "0.35rem" }}
+                            >
+                                <option value="only-me">Solo yo</option>
+                                <option value="all">Todos</option>
+                                <option value="some">Personas concretas</option>
+                            </select>
+                            {visibility === "some" && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.5rem" }}>
+                                    {users.map((u) => (
+                                        <label key={u.id} style={{ fontSize: "0.8rem" }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={viewers.includes(u.id)}
+                                                onChange={(e) =>
+                                                    setViewers((prev) =>
+                                                        e.target.checked ? [...prev, u.id] : prev.filter((id) => id !== u.id)
+                                                    )
+                                                }
+                                            />
+                                            {u.fullName}
+                                        </label>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Justificante médico */}
+                        <div style={{ marginBottom: "1rem" }}>
+                            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}>
+                                Justificante para cita médica (opcional):
+                            </label>
+                            <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                onChange={(e) => setMedicalFile(e.target.files?.[0] ?? null)}
+                                style={{ fontSize: "0.8rem" }}
+                            />
+                        </div>
+
+                        <button
+                            onClick={() => setSelectedDay(null)}
+                            style={{
+                                width: "100%",
+                                padding: "0.5rem",
+                                borderRadius: "0.25rem",
+                                border: "1px solid #d1d5db",
+                                backgroundColor: "#ffffff",
+                                cursor: "pointer",
+                            }}
+                        >
+                            Cerrar
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+
+    // Enviar rango de vacaciones
+    function createVacationRangeFromTo(start: string, end: string) {
+        const days = Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        if (days > vacationDaysLeft) {
+            alert(`Solo te quedan ${vacationDaysLeft} días de vacaciones`);
+            return;
+        }
+
+        const dates: string[] = [];
+        for (let d = new Date(start); d <= new Date(end); d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().slice(0, 10);
+
+            // PROTECCIÓN: No agregar si ya existe vacación ese día
+            const existingVacation = events.some(e => e.date === dateStr && e.type === "vacaciones");
+            if (!existingVacation) {
+                dates.push(dateStr);
+            }
+        }
+
+        if (dates.length === 0) {
+            alert("Todos los días del rango ya tienen vacaciones asignadas");
+            return;
+        }
+
+        if (dates.length > vacationDaysLeft) {
+            alert(`Solo te quedan ${vacationDaysLeft} días de vacaciones disponibles`);
+            return;
+        }
+
+        Promise.all(
+            dates.map((date) =>
+                fetch(`${API_BASE_URL}/calendar/events`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${user!.token}`,
+                    },
+                    body: JSON.stringify({
+                        type: "vacaciones",
+                        date,
+                        status: "pending",
+                        visibility,
+                        viewers: visibility === "some" ? viewers : undefined,
+                    }),
+                }).then((r) => r.json())
+            )
+        )
+            .then((newEvents) => {
+                setEvents([...events, ...newEvents]);
+                setVacationDaysLeft((prev) => prev - dates.length);
+            })
+            .catch(() => alert("Error al guardar vacaciones"));
+    }
+
+    // Envío simple
+    function sendEvent(body: any) {
+        fetch(`${API_BASE_URL}/calendar/events`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${user!.token}`,
+            },
+            body: JSON.stringify(body),
+        })
+            .then((r) => r.json())
+            .then((ev: CalendarEvent) => {
+                setEvents([...events, ev]);
+                if (body.type === "vacaciones" && body.status === "approved") {
+                    setVacationDaysLeft((prev) => prev - 1);
+                }
+            })
+            .catch(() => alert("Error al guardar"));
+    }
+};
+
+export default CalendarPage;

@@ -8,6 +8,22 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 // -------------------------
 
 type Role = "worker" | "admin";
+type EventType = "visita" | "juicio" | "vacaciones" | "cita médica" | "otros";
+type Visibility = "only-me" | "all" | "some";
+
+interface CalendarEvent {
+  id: string;
+  ownerId: string;
+  type: EventType;
+  date: string; // YYYY-MM-DD
+  status?: "pending" | "approved"; // solo vacaciones
+  visibility: Visibility;
+  viewers?: string[]; // userIds si visibility === "some"
+  medicalJustificationFileName?: string;
+}
+
+// ✅ UN SOLO almacén en memoria
+const calendarEvents: CalendarEvent[] = [];
 
 interface User {
   id: string;
@@ -25,6 +41,7 @@ interface User {
   workerFirstName?: string;
   workerNif?: string;
   workerSsNumber?: string;
+  avatarDataUrl?: string | null;
 }
 
 type AbsenceType = "none" | "vacation" | "nonWorkingDay" | "medical";
@@ -857,6 +874,72 @@ app.get(
     res.send(Buffer.from(pdfBytes));
   }
 );
+
+// GET /api/profile  (devuelve datos propios + avatar)
+app.get("/api/profile", authMiddleware, (req: AuthRequest, res: Response) => {
+  const u = findUserById(req.user!.userId);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  const { password, ...rest } = u;
+  res.json(rest);
+});
+
+// PUT /api/profile/avatar  (guarda o cambia avatar en base64)
+app.put("/api/profile/avatar", authMiddleware, (req: AuthRequest, res: Response) => {
+  const { avatarDataUrl } = req.body;
+  const u = findUserById(req.user!.userId);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  u.avatarDataUrl = avatarDataUrl || null;
+  res.json({ ok: true });
+});
+
+// GET usuarios para selector
+app.get("/api/calendar/users", authMiddleware, (req: AuthRequest, res) => {
+  const list = users.map((u) => ({ id: u.id, fullName: u.fullName }));
+  res.json({ users: list });
+});
+
+// GET eventos visibles para el que consulta
+app.get("/api/calendar/events", authMiddleware, (req: AuthRequest, res) => {
+  const me = req.user!.userId;
+  const visible = calendarEvents.filter((ev) => {
+    if (ev.visibility === "only-me") return ev.ownerId === me;
+    if (ev.visibility === "all") return true;
+    if (ev.visibility === "some") return ev.viewers?.includes(me);
+    return false;
+  });
+  res.json({ events: visible });
+});
+
+// POST nuevo evento
+app.post("/api/calendar/events", authMiddleware, (req: AuthRequest, res) => {
+  const { type, date, visibility, viewers, status, medicalJustificationDataUrl } = req.body;
+  if (!type || !date) return res.status(400).json({ error: "Faltan campos" });
+
+  const newEvent: CalendarEvent = {
+    id: String(Date.now()),
+    ownerId: req.user!.userId,
+    type,
+    date,
+    visibility: visibility || "only-me",
+    viewers: viewers || undefined,
+    status: status || undefined,
+    medicalJustificationFileName: medicalJustificationDataUrl ? "justificante.png" : undefined,
+  };
+
+  calendarEvents.push(newEvent);
+  res.json(newEvent);
+});
+
+// GET días de vacaciones restantes
+app.get("/api/calendar/vacation-days-left", authMiddleware, (req: AuthRequest, res) => {
+  const u = findUserById(req.user!.userId);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  const approved = calendarEvents.filter(
+    (e) => e.ownerId === req.user!.userId && e.type === "vacaciones" && e.status === "approved"
+  ).length;
+  const left = (u.vacationDaysPerYear || 23) - approved;
+  res.json({ daysLeft: left });
+});
 
 // -------------------------
 // Arranque del servidor

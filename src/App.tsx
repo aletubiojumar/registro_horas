@@ -4,25 +4,29 @@ import { useAuth } from "./auth/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import HoursPage from "./pages/HoursPage";
 import AdminPage from "./pages/AdminPage";
+import ProfilePage from "./pages/ProfilePage";
+import CalendarPage from "./pages/CalendarPage";
 
 interface ProtectedRouteProps {
-  children: React.ReactElement;
+  children: React.ReactNode;
   adminOnly?: boolean;
 }
 
 function ProtectedRoute({ children, adminOnly = false }: ProtectedRouteProps) {
   const { user } = useAuth();
+  console.log("ProtectedRoute", { user, adminOnly });
 
-  // No hay usuario -> al login
   if (!user) {
+    console.log("→ sin usuario → login");
     return <Navigate to="/login" replace />;
   }
 
-  // Ruta solo admin y el usuario no lo es -> a horas
   if (adminOnly && user.role !== "admin") {
+    console.log("→ no es admin → /horas");
     return <Navigate to="/horas" replace />;
   }
 
+  console.log("→ todo ok → renderiza hijo");
   return children;
 }
 
@@ -49,6 +53,26 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute>
               <HoursPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* PERFIL */}
+        <Route
+          path="/perfil"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        
+        {/* CALENDARIO */}
+        <Route
+          path="/calendario"
+          element={
+            <ProtectedRoute>
+              <CalendarPage />
             </ProtectedRoute>
           }
         />
