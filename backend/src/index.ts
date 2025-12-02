@@ -71,6 +71,25 @@ interface CustomJwtPayload {
   role: Role;
 }
 
+interface Payroll {
+  id: string;
+  ownerId: string;
+  month: string;
+  year: string;
+  fileName: string
+}
+
+interface Citation {
+  id: string;
+  ownerId: string;
+  title: string;
+  issuedAt: string;
+  fileName: string
+}
+
+const payrollsDb: Payroll[] = [];
+const citationsDb: Citation[] = [];
+
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-demo";
 
 const users: User[] = [
@@ -222,7 +241,7 @@ app.post("/api/auth/login", (req: Request, res: Response) => {
   const user = findUserByUsername(username);
 
   // NOTA DE SEGURIDAD: Aquí es donde se debería usar 'comparePassword(password, user.password)'
-  if (!user || user.password !== password) { 
+  if (!user || user.password !== password) {
     res.status(401).json({ error: "Usuario o contraseña incorrectos" });
     return;
   }
@@ -676,7 +695,7 @@ app.patch(
     // Lógica de corrección: Actualizar la contraseña si se proporciona y no está vacía.
     if (password !== undefined && password.trim() !== "") {
       // En un entorno seguro, aquí iría: targetUser.password = await hashPassword(password);
-      targetUser.password = password; 
+      targetUser.password = password;
     }
 
     if (fullName !== undefined) targetUser.fullName = fullName;
@@ -939,6 +958,66 @@ app.get("/api/calendar/vacation-days-left", authMiddleware, (req: AuthRequest, r
   ).length;
   const left = (u.vacationDaysPerYear || 23) - approved;
   res.json({ daysLeft: left });
+});
+
+//ENDPOINTS DE CALENDARIO AÑADIDOS
+// ====== MIS DOCUMENTOS ======
+
+/* 1. Listado de nóminas del usuario */
+app.get("/api/documents/payrolls", authMiddleware, (req: AuthRequest, res) => {
+  const list = payrollsDb.filter(p => p.ownerId === req.user!.userId);
+  res.json({ payrolls: list });
+});
+
+/* 2. Descarga de una nómina */
+app.get("/api/documents/payrolls/:id/download", authMiddleware, (req: AuthRequest, res) => {
+  const pay = payrollsDb.find(p => p.id === req.params.id && p.ownerId === req.user!.userId);
+  if (!pay) return res.status(404).json({ error: "Nómina no encontrada" });
+
+  // Fichero simulado: buffer de 1 kB con texto
+  const fakeBuffer = Buffer.from(`CONTENIDO DE LA NÓMINA ${pay.fileName}\n`);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${pay.fileName}"`);
+  res.send(fakeBuffer);
+});
+
+/* 3. Contrato del usuario */
+app.get("/api/documents/contract", authMiddleware, (req: AuthRequest, res) => {
+  const user = findUserById(req.user!.userId);
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  // Suponemos un único contrato por usuario
+  const fileName = `contrato_${user.username}.pdf`;
+  res.json({ contract: { fileName } });
+});
+
+/* 4. Descarga del contrato */
+app.get("/api/documents/contract/download", authMiddleware, (req: AuthRequest, res) => {
+  const user = findUserById(req.user!.userId);
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  const fileName = `contrato_${user.username}.pdf`;
+  const fakeBuffer = Buffer.from(`CONTRATO DE TRABAJO DE ${user.fullName}\n`);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+  res.send(fakeBuffer);
+});
+
+/* 5. Listado de citaciones */
+app.get("/api/documents/citations", authMiddleware, (req: AuthRequest, res) => {
+  const list = citationsDb.filter(c => c.ownerId === req.user!.userId);
+  res.json({ citations: list });
+});
+
+/* 6. Descarga de una citación */
+app.get("/api/documents/citations/:id/download", authMiddleware, (req: AuthRequest, res) => {
+  const cit = citationsDb.find(c => c.id === req.params.id && c.ownerId === req.user!.userId);
+  if (!cit) return res.status(404).json({ error: "Citación no encontrada" });
+
+  const fakeBuffer = Buffer.from(`CITACIÓN: ${cit.title}\nFecha: ${cit.issuedAt}\n`);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${cit.fileName}"`);
+  res.send(fakeBuffer);
 });
 
 // -------------------------

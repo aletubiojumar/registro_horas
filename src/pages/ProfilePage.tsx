@@ -139,7 +139,7 @@ const ProfilePage: React.FC = () => {
                 <button onClick={() => navigate("/calendario")} style={btnStyle("#c4b5fd", "#fff")}>
                     Mi Calendario
                 </button>
-                <button onClick={() => navigate("/docu")} style={btnStyle("#9ff5bcff", "#fff")}>
+                <button onClick={() => navigate("/mis-documentos")} style={btnStyle("#9ff5bcff", "#fff")}>
                     Mis Documentos
                 </button>
                 <button onClick={logout} style={btnStyle("#60a5fa", "#fff")}>

@@ -6,6 +6,7 @@ import HoursPage from "./pages/HoursPage";
 import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
 import CalendarPage from "./pages/CalendarPage";
+import DocumentsPage from "./pages/DocumentsPage";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -66,7 +67,7 @@ const App: React.FC = () => {
             </ProtectedRoute>
           }
         />
-        
+
         {/* CALENDARIO */}
         <Route
           path="/calendario"
@@ -76,6 +77,14 @@ const App: React.FC = () => {
             </ProtectedRoute>
           }
         />
+
+        {/* DOCUMENTOS */}
+        <Route 
+          path="/mis-documentos"
+          element={
+            <ProtectedRoute>
+              <DocumentsPage />
+            </ProtectedRoute>} />
 
         {/* Ruta raíz -> redirige a login */}
         <Route path="/" element={<Navigate to="/login" replace />} />
