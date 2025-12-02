@@ -6,8 +6,14 @@ export interface AdminUser {
   fullName: string;
   role: string;
   isActive: boolean;
-  email?: string;
   vacationDaysPerYear?: number;
+  workCenter?: string;
+  companyCif?: string;
+  companyCcc?: string;
+  workerLastName?: string;
+  workerFirstName?: string;
+  workerNif?: string;
+  workerSsNumber?: string;
 }
 
 interface UserListProps {

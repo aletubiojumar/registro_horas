@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import UserList from "../components/UserList";
 import type { AdminUser } from "../components/UserList";
 import AdminHoursViewer from "../components/AdminHoursViewer";
+import UserDataEditor from "../components/UserDataEditor";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
@@ -19,13 +20,11 @@ const AdminPage: React.FC = () => {
 
   // Formulario de creación
   const [newUsername, setNewUsername] = useState("");
-  const [newFullName, setNewFullName] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newRole, setNewRole] = useState<"worker" | "admin">("worker");
-  const [newVacationDays, setNewVacationDays] = useState<number>(23);
   const [creatingUser, setCreatingUser] = useState(false);
   const [createErrorMsg, setCreateErrorMsg] = useState<string | null>(null);
+
+  // Tab seleccionado: 'data' o 'hours'
+  const [selectedTab, setSelectedTab] = useState<"data" | "hours">("data");
 
   // Cargar usuarios al entrar
   useEffect(() => {
@@ -126,12 +125,15 @@ const AdminPage: React.FC = () => {
     e.preventDefault();
     if (!user?.token) return;
 
-    if (!newUsername || !newFullName || !newPassword) {
-      setCreateErrorMsg(
-        "Usuario, nombre completo y contraseña son obligatorios."
-      );
+    if (!newUsername.trim()) {
+      setCreateErrorMsg("El nombre del usuario es obligatorio.");
       return;
     }
+
+    // Generar username y contraseña automáticos
+    const timestamp = Date.now();
+    const autoUsername = `usuario${timestamp}`;
+    const autoPassword = `temp${timestamp}`;
 
     setCreatingUser(true);
     setCreateErrorMsg(null);
@@ -144,12 +146,11 @@ const AdminPage: React.FC = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          username: newUsername,
-          fullName: newFullName,
-          password: newPassword,
-          email: newEmail || undefined,
-          role: newRole,
-          vacationDaysPerYear: newVacationDays,
+          username: autoUsername,
+          fullName: newUsername.trim(),
+          password: autoPassword,
+          role: "worker",
+          vacationDaysPerYear: 23,
         }),
       });
 
@@ -161,25 +162,18 @@ const AdminPage: React.FC = () => {
       }
 
       const data = await res.json();
-      const created: AdminUser = {
-        id: data.user.id,
-        username: data.user.username,
-        fullName: data.user.fullName,
-        role: data.user.role,
-        isActive: data.user.isActive,
-        email: data.user.email,
-        vacationDaysPerYear: data.user.vacationDaysPerYear,
-      };
+      const created: AdminUser = data.user;
 
       setUsers((prev) => [...prev, created]);
-
+      
+      // Seleccionar automáticamente el usuario creado y mostrar el tab de datos
+      setSelectedUser(created);
+      setSelectedTab("data");
+      
+      // Limpiar el campo
       setNewUsername("");
-      setNewFullName("");
-      setNewPassword("");
-      setNewEmail("");
-      setNewRole("worker");
-      setNewVacationDays(23);
       setCreateErrorMsg(null);
+      
     } catch (err) {
       console.error("Error creando usuario:", err);
       setCreateErrorMsg("Error de conexión al crear el usuario.");
@@ -191,6 +185,13 @@ const AdminPage: React.FC = () => {
   const handleLogout = () => {
     logout();
     navigate("/login", { replace: true });
+  };
+
+  const handleUserDataUpdated = (updatedUser: AdminUser) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === updatedUser.id ? updatedUser : u))
+    );
+    setSelectedUser(updatedUser);
   };
 
   return (
@@ -205,6 +206,7 @@ const AdminPage: React.FC = () => {
           display: "flex",
           flexDirection: "column",
           gap: "1rem",
+          overflowY: "auto",
         }}
       >
         {/* Cabecera con info admin y logout */}
@@ -246,114 +248,21 @@ const AdminPage: React.FC = () => {
         <div>
           <h2 style={{ marginBottom: "0.5rem" }}>Crear usuario</h2>
           <form onSubmit={handleCreateUser} style={{ fontSize: "0.8rem" }}>
-            <div style={{ marginBottom: "0.35rem" }}>
+            <div style={{ marginBottom: "0.5rem" }}>
               <label>
-                Usuario:
+                Nombre del usuario:
                 <br />
                 <input
                   type="text"
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="Ej: Juan Pérez"
                   style={{
                     width: "100%",
-                    padding: "0.2rem 0.3rem",
+                    padding: "0.4rem",
                     borderRadius: "0.25rem",
                     border: "1px solid #d1d5db",
-                  }}
-                />
-              </label>
-            </div>
-            <div style={{ marginBottom: "0.35rem" }}>
-              <label>
-                Nombre completo:
-                <br />
-                <input
-                  type="text"
-                  value={newFullName}
-                  onChange={(e) => setNewFullName(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "0.2rem 0.3rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #d1d5db",
-                  }}
-                />
-              </label>
-            </div>
-            <div style={{ marginBottom: "0.35rem" }}>
-              <label>
-                Contraseña:
-                <br />
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "0.2rem 0.3rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #d1d5db",
-                  }}
-                />
-              </label>
-            </div>
-            <div style={{ marginBottom: "0.35rem" }}>
-              <label>
-                Email (opcional):
-                <br />
-                <input
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "0.2rem 0.3rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #d1d5db",
-                  }}
-                />
-              </label>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                gap: "0.5rem",
-                marginBottom: "0.35rem",
-              }}
-            >
-              <label>
-                Rol:
-                <br />
-                <select
-                  value={newRole}
-                  onChange={(e) =>
-                    setNewRole(e.target.value as "worker" | "admin")
-                  }
-                  style={{
-                    padding: "0.2rem 0.3rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #d1d5db",
-                    fontSize: "0.8rem",
-                  }}
-                >
-                  <option value="worker">Trabajador</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </label>
-              <label>
-                Días vacaciones:
-                <br />
-                <input
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={newVacationDays}
-                  onChange={(e) => setNewVacationDays(Number(e.target.value))}
-                  style={{
-                    width: "4rem",
-                    padding: "0.2rem 0.3rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #d1d5db",
+                    fontSize: "0.85rem",
                   }}
                 />
               </label>
@@ -361,11 +270,12 @@ const AdminPage: React.FC = () => {
             {createErrorMsg && (
               <div
                 style={{
-                  marginBottom: "0.35rem",
+                  marginBottom: "0.5rem",
                   padding: "0.3rem",
                   borderRadius: "0.25rem",
                   backgroundColor: "#fee2e2",
                   color: "#b91c1c",
+                  fontSize: "0.75rem",
                 }}
               >
                 {createErrorMsg}
@@ -375,18 +285,19 @@ const AdminPage: React.FC = () => {
               type="submit"
               disabled={creatingUser}
               style={{
-                marginTop: "0.25rem",
                 width: "100%",
-                padding: "0.3rem 0.4rem",
+                padding: "0.5rem 0.75rem",
                 borderRadius: "0.35rem",
-                border: "1px solid #2563eb",
+                border: "none",
                 backgroundColor: "#2563eb",
                 color: "#ffffff",
-                fontSize: "0.8rem",
+                fontSize: "0.85rem",
+                fontWeight: 500,
                 cursor: creatingUser ? "not-allowed" : "pointer",
+                opacity: creatingUser ? 0.6 : 1,
               }}
             >
-              {creatingUser ? "Creando..." : "Crear usuario"}
+              {creatingUser ? "Creando..." : "➕ Crear usuario"}
             </button>
           </form>
         </div>
@@ -410,12 +321,64 @@ const AdminPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Panel derecho: visor de horas */}
-      <div style={{ flexGrow: 1, padding: "1rem" }}>
+      {/* Panel derecho */}
+      <div style={{ flexGrow: 1, padding: "1rem", overflowY: "auto" }}>
         {selectedUser ? (
-          <AdminHoursViewer user={selectedUser} />
+          <>
+            {/* Tabs */}
+            <div
+              style={{
+                display: "flex",
+                gap: "0.5rem",
+                marginBottom: "1rem",
+                borderBottom: "1px solid #e5e7eb",
+              }}
+            >
+              <button
+                onClick={() => setSelectedTab("data")}
+                style={{
+                  padding: "0.5rem 1rem",
+                  border: "none",
+                  borderBottom:
+                    selectedTab === "data" ? "2px solid #2563eb" : "none",
+                  backgroundColor: "transparent",
+                  color: selectedTab === "data" ? "#2563eb" : "#6b7280",
+                  fontWeight: selectedTab === "data" ? 600 : 400,
+                  cursor: "pointer",
+                }}
+              >
+                Datos del usuario
+              </button>
+              <button
+                onClick={() => setSelectedTab("hours")}
+                style={{
+                  padding: "0.5rem 1rem",
+                  border: "none",
+                  borderBottom:
+                    selectedTab === "hours" ? "2px solid #2563eb" : "none",
+                  backgroundColor: "transparent",
+                  color: selectedTab === "hours" ? "#2563eb" : "#6b7280",
+                  fontWeight: selectedTab === "hours" ? 600 : 400,
+                  cursor: "pointer",
+                }}
+              >
+                Horas registradas
+              </button>
+            </div>
+
+            {/* Contenido del tab */}
+            {selectedTab === "data" && (
+              <UserDataEditor
+                user={selectedUser}
+                onUserUpdated={handleUserDataUpdated}
+              />
+            )}
+            {selectedTab === "hours" && (
+              <AdminHoursViewer user={selectedUser} />
+            )}
+          </>
         ) : (
-          <p>Selecciona un usuario en la lista de la izquierda para ver sus horas.</p>
+          <p>Selecciona un usuario en la lista de la izquierda.</p>
         )}
       </div>
     </div>

@@ -13,11 +13,18 @@ interface User {
   id: string;
   username: string;
   fullName: string;
-  password: string; // en claro, para demo; en producción -> hashed
+  password: string; // ¡ADVERTENCIA: Debería ser un hash cifrado!
   role: Role;
   isActive: boolean;
-  email?: string;
   vacationDaysPerYear?: number;
+  // Datos para la cabecera del PDF
+  workCenter?: string;
+  companyCif?: string;
+  companyCcc?: string;
+  workerLastName?: string;
+  workerFirstName?: string;
+  workerNif?: string;
+  workerSsNumber?: string;
 }
 
 type AbsenceType = "none" | "vacation" | "nonWorkingDay" | "medical";
@@ -29,14 +36,14 @@ interface StoredDay {
   afternoonIn?: string;
   afternoonOut?: string;
   totalMinutes?: number;
-  absenceType?: AbsenceType
+  absenceType?: AbsenceType;
   hasSignature?: boolean;
 }
 
 interface MonthHours {
   userId: string;
   year: number;
-  month: number; // 1-12
+  month: number;
   days: StoredDay[];
   signatureDataUrl?: string | null;
 }
@@ -49,7 +56,6 @@ interface CustomJwtPayload {
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-demo";
 
-// usuarios en memoria
 const users: User[] = [
   {
     id: "1",
@@ -58,8 +64,14 @@ const users: User[] = [
     password: "admin123",
     role: "admin",
     isActive: true,
-    email: "admin@example.com",
     vacationDaysPerYear: 23,
+    workCenter: "Centro principal",
+    companyCif: "B23653157",
+    companyCcc: "14/10631457/33",
+    workerLastName: "Administración",
+    workerFirstName: "Usuario",
+    workerNif: "",
+    workerSsNumber: "",
   },
   {
     id: "2",
@@ -68,12 +80,17 @@ const users: User[] = [
     password: "password1",
     role: "worker",
     isActive: true,
-    email: "t1@example.com",
     vacationDaysPerYear: 23,
+    workCenter: "Centro principal",
+    companyCif: "B23653157",
+    companyCcc: "14/10631457/33",
+    workerLastName: "Uno",
+    workerFirstName: "Trabajador",
+    workerNif: "",
+    workerSsNumber: "",
   },
 ];
 
-// horas por usuario / mes (en memoria)
 const hoursStore: MonthHours[] = [];
 
 // -------------------------
@@ -168,7 +185,7 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors());
-app.use(express.json({ limit: "10mb" })); // para firmas en base64
+app.use(express.json({ limit: "10mb" }));
 
 // -------------------------
 // Auth
@@ -187,7 +204,8 @@ app.post("/api/auth/login", (req: Request, res: Response) => {
 
   const user = findUserByUsername(username);
 
-  if (!user || user.password !== password) {
+  // NOTA DE SEGURIDAD: Aquí es donde se debería usar 'comparePassword(password, user.password)'
+  if (!user || user.password !== password) { 
     res.status(401).json({ error: "Usuario o contraseña incorrectos" });
     return;
   }
@@ -212,7 +230,6 @@ app.post("/api/auth/login", (req: Request, res: Response) => {
       username: user.username,
       fullName: user.fullName,
       role: user.role,
-      email: user.email,
       vacationDaysPerYear: user.vacationDaysPerYear,
     },
   });
@@ -222,7 +239,6 @@ app.post("/api/auth/login", (req: Request, res: Response) => {
 // Endpoints worker: horas
 // -------------------------
 
-// GET horas del mes del usuario logueado
 app.get("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.userId;
   const year = Number(req.query.year);
@@ -242,8 +258,6 @@ app.get("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
   res.json({ exists: true, data });
 });
 
-// PUT guardar horas del mes del usuario logueado
-// PUT guardar horas del mes del usuario logueado
 app.put("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.userId;
   const { year, month, days, signatureDataUrl } = req.body as {
@@ -295,7 +309,6 @@ app.put("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
   res.json({ ok: true });
 });
 
-
 // -------------------------
 // Generación de PDF
 // -------------------------
@@ -305,7 +318,7 @@ async function createPdfForMonth(
   user: User
 ): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]); // A4
+  const page = pdfDoc.addPage([595.28, 841.89]);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
@@ -318,7 +331,7 @@ async function createPdfForMonth(
     x: number,
     yPos: number,
     bold = false,
-    size = 12
+    size = 10
   ) => {
     page.drawText(text, {
       x,
@@ -329,65 +342,124 @@ async function createPdfForMonth(
     });
   };
 
-  drawText("Registro de jornada", margin, y, true, 18);
-  y -= 30;
-  drawText(`Trabajador: ${user.fullName}`, margin, y);
-  y -= 16;
-  drawText(`Usuario: ${user.username}`, margin, y);
-  y -= 16;
-  drawText(
-    `Mes: ${String(monthData.month).padStart(2, "0")} / ${monthData.year}`,
-    margin,
-    y
-  );
+  // CABECERA
+  drawText("REGISTRO DIARIO DE JORNADA", margin, y, true, 14);
+  y -= 25;
 
-  y -= 28;
-  drawText("Día", margin, y, true, 11);
-  drawText("Mañana", margin + 40, y, true, 11);
-  drawText("Tarde", margin + 200, y, true, 11);
-  drawText("Total (h)", margin + 360, y, true, 11);
+  // Empresa y Centro
+  drawText(`Empresa: JUMAR INGEN. Y PERITAC. S.L.`, margin, y, false, 9);
+  y -= 14;
+  drawText(
+    `Centro de Trabajo: ${user.workCenter || ""}`,
+    margin,
+    y,
+    false,
+    9
+  );
+  y -= 14;
+  drawText(`CIF: ${user.companyCif || ""}`, margin, y, false, 9);
+  y -= 14;
+  drawText(
+    `Código de Cuenta de Cotización: ${user.companyCcc || ""}`,
+    margin,
+    y,
+    false,
+    9
+  );
+  y -= 20;
+
+  // Trabajador
+  drawText(
+    `Trabajador: ${user.workerLastName || ""} ${user.workerFirstName || ""}`,
+    margin,
+    y,
+    false,
+    9
+  );
+  y -= 14;
+  drawText(`NIF: ${user.workerNif || ""}`, margin, y, false, 9);
+  y -= 14;
+  drawText(
+    `Número de afiliación a la Seguridad Social: ${user.workerSsNumber || ""}`,
+    margin,
+    y,
+    false,
+    9
+  );
+  y -= 20;
+
+  // Mes y año
+  const monthName = new Intl.DateTimeFormat("es-ES", {
+    month: "long",
+  }).format(new Date(monthData.year, monthData.month - 1, 1));
+  drawText(
+    `Mes y Año: ${monthName} ${monthData.year}`,
+    margin,
+    y,
+    true,
+    10
+  );
+  y -= 25;
+
+  // TABLA DE HORAS
+  const colDia = margin;
+  const colMañana = margin + 40;
+  const colTarde = margin + 200;
+  const colTotal = margin + 360;
+
+  drawText("Día", colDia, y, true, 9);
+  drawText("Mañana", colMañana, y, true, 9);
+  drawText("Tarde", colTarde, y, true, 9);
+  drawText("Total (h)", colTotal, y, true, 9);
   y -= 14;
 
   const rowHeight = 12;
 
   monthData.days.forEach((d) => {
-    if (y < margin + 40) {
-      page.drawText("...", { x: margin, y, size: 10, font });
+    if (y < margin + 60) {
       return;
     }
 
     const totalMinutes = d.totalMinutes ?? 0;
     const totalHours = (totalMinutes / 60).toFixed(2);
 
-    drawText(String(d.day), margin, y);
+    drawText(String(d.day), colDia, y, false, 9);
     drawText(
       `${d.morningIn ?? "--:--"} - ${d.morningOut ?? "--:--"}`,
-      margin + 40,
-      y
+      colMañana,
+      y,
+      false,
+      9
     );
     drawText(
       `${d.afternoonIn ?? "--:--"} - ${d.afternoonOut ?? "--:--"}`,
-      margin + 200,
-      y
+      colTarde,
+      y,
+      false,
+      9
     );
-    drawText(totalHours, margin + 360, y);
+    drawText(totalHours, colTotal, y, false, 9);
 
     y -= rowHeight;
   });
 
-  y -= 24;
-  drawText("Firma trabajador:", margin, y);
+  // FIRMA
+  y -= 30;
+  if (y < margin + 60) {
+    y = margin + 60;
+  }
+  drawText("Firma trabajador:", margin, y, false, 9);
+
   if (monthData.signatureDataUrl) {
     try {
-      // signatureDataUrl = "data:image/png;base64,AAAA..."
       const base64 = monthData.signatureDataUrl.split(",")[1];
       const pngBytes = Buffer.from(base64, "base64");
       const pngImage = await pdfDoc.embedPng(pngBytes);
 
-      const scale = 0.4; // Ajusta el tamaño de la firma
+      const scale = 0.3;
       const pngDims = pngImage.scale(scale);
 
-      const sigX = margin + 120;
+      const sigX = margin + 100;
       const sigY = y - pngDims.height + 4;
 
       page.drawImage(pngImage, {
@@ -398,7 +470,7 @@ async function createPdfForMonth(
       });
     } catch (e) {
       console.error("Error incrustando firma en PDF:", e);
-      drawText("[firma adjunta en sistema]", margin + 120, y);
+      drawText("[firma adjunta en sistema]", margin + 100, y, false, 8);
     }
   }
 
@@ -406,7 +478,6 @@ async function createPdfForMonth(
   return pdfBytes;
 }
 
-// PDF del propio usuario
 app.get(
   "/api/hours/pdf",
   authMiddleware,
@@ -416,9 +487,7 @@ app.get(
     const month = Number(req.query.month);
 
     if (!year || !month) {
-      res
-        .status(400)
-        .json({ error: "Parámetros year y month son obligatorios" });
+      res.status(400).json({ error: "Parámetros year y month son obligatorios" });
       return;
     }
 
@@ -447,7 +516,6 @@ app.get(
 // Administración: usuarios
 // -------------------------
 
-// Listar usuarios
 app.get(
   "/api/admin/users",
   authMiddleware,
@@ -460,14 +528,19 @@ app.get(
         fullName: u.fullName,
         role: u.role,
         isActive: u.isActive,
-        email: u.email,
         vacationDaysPerYear: u.vacationDaysPerYear,
+        workCenter: u.workCenter,
+        companyCif: u.companyCif,
+        companyCcc: u.companyCcc,
+        workerLastName: u.workerLastName,
+        workerFirstName: u.workerFirstName,
+        workerNif: u.workerNif,
+        workerSsNumber: u.workerSsNumber,
       })),
     });
   }
 );
 
-// Crear usuario
 app.post(
   "/api/admin/users",
   authMiddleware,
@@ -477,16 +550,19 @@ app.post(
       username,
       fullName,
       password,
-      email,
       role,
       vacationDaysPerYear,
-    } = req.body as {
+      workCenter,
+      companyCif,
+      companyCcc,
+      workerLastName,
+      workerFirstName,
+      workerNif,
+      workerSsNumber,
+    } = req.body as Partial<User> & {
       username: string;
       fullName: string;
       password: string;
-      email?: string;
-      role?: Role;
-      vacationDaysPerYear?: number;
     };
 
     if (!username || !fullName || !password) {
@@ -507,11 +583,17 @@ app.post(
       id,
       username,
       fullName,
-      password,
+      password, // Debería ser cifrada antes de guardar
       role: role || "worker",
       isActive: true,
-      email,
       vacationDaysPerYear: vacationDaysPerYear ?? 23,
+      workCenter: workCenter || "",
+      companyCif: companyCif || "",
+      companyCcc: companyCcc || "",
+      workerLastName: workerLastName || "",
+      workerFirstName: workerFirstName || "",
+      workerNif: workerNif || "",
+      workerSsNumber: workerSsNumber || "",
     };
 
     users.push(newUser);
@@ -523,14 +605,82 @@ app.post(
         fullName: newUser.fullName,
         role: newUser.role,
         isActive: newUser.isActive,
-        email: newUser.email,
         vacationDaysPerYear: newUser.vacationDaysPerYear,
+        workCenter: newUser.workCenter,
+        companyCif: newUser.companyCif,
+        companyCcc: newUser.companyCcc,
+        workerLastName: newUser.workerLastName,
+        workerFirstName: newUser.workerFirstName,
+        workerNif: newUser.workerNif,
+        workerSsNumber: newUser.workerSsNumber,
       },
     });
   }
 );
 
-// Desactivar usuario (con protección de admins)
+// CORRECCIÓN APLICADA AQUÍ:
+app.patch(
+  "/api/admin/users/:id",
+  authMiddleware,
+  adminOnlyMiddleware,
+  (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    const targetUser = findUserById(id);
+
+    if (!targetUser) {
+      res.status(404).json({ error: "Usuario no encontrado" });
+      return;
+    }
+
+    const {
+      username,
+      password, // Campo que queremos actualizar
+      fullName,
+      vacationDaysPerYear,
+      workCenter,
+      companyCif,
+      companyCcc,
+      workerLastName,
+      workerFirstName,
+      workerNif,
+      workerSsNumber,
+    } = req.body as Partial<User>;
+
+    // Si se intenta cambiar el username, verificar que no exista otro usuario con ese username
+    if (username !== undefined && username !== targetUser.username) {
+      const existingUser = findUserByUsername(username);
+      if (existingUser && existingUser.id !== id) {
+        res.status(400).json({ error: "Ya existe un usuario con ese username" });
+        return;
+      }
+      targetUser.username = username;
+    }
+
+    // Lógica de corrección: Actualizar la contraseña si se proporciona y no está vacía.
+    if (password !== undefined && password.trim() !== "") {
+      // En un entorno seguro, aquí iría: targetUser.password = await hashPassword(password);
+      targetUser.password = password; 
+    }
+
+    if (fullName !== undefined) targetUser.fullName = fullName;
+    if (vacationDaysPerYear !== undefined)
+      targetUser.vacationDaysPerYear = vacationDaysPerYear;
+    if (workCenter !== undefined) targetUser.workCenter = workCenter;
+    if (companyCif !== undefined) targetUser.companyCif = companyCif;
+    if (companyCcc !== undefined) targetUser.companyCcc = companyCcc;
+    if (workerLastName !== undefined) targetUser.workerLastName = workerLastName;
+    if (workerFirstName !== undefined)
+      targetUser.workerFirstName = workerFirstName;
+    if (workerNif !== undefined) targetUser.workerNif = workerNif;
+    if (workerSsNumber !== undefined) targetUser.workerSsNumber = workerSsNumber;
+
+    // Aseguramos que el objeto devuelto no contenga el password
+    const { password: userPassword, ...userResponse } = targetUser;
+
+    res.json({ ok: true, user: userResponse });
+  }
+);
+
 app.patch(
   "/api/admin/users/:id/deactivate",
   authMiddleware,
@@ -544,7 +694,6 @@ app.patch(
       return;
     }
 
-    // No permitir desactivarse a sí mismo si es admin
     if (req.user?.userId === id && targetUser.role === "admin") {
       res.status(400).json({
         error: "No puedes desactivar tu propio usuario de administración.",
@@ -552,7 +701,6 @@ app.patch(
       return;
     }
 
-    // Si el objetivo es admin, comprobar que seguirá habiendo al menos un admin activo
     if (targetUser.role === "admin") {
       const activeAdmins = users.filter(
         (u) => u.role === "admin" && u.isActive
@@ -571,7 +719,6 @@ app.patch(
   }
 );
 
-// Activar usuario
 app.patch(
   "/api/admin/users/:id/activate",
   authMiddleware,
@@ -590,7 +737,6 @@ app.patch(
   }
 );
 
-// Borrar usuario (con protección de admins)
 app.delete(
   "/api/admin/users/:id",
   authMiddleware,
@@ -604,7 +750,6 @@ app.delete(
       return;
     }
 
-    // No permitir borrarse a sí mismo si es admin
     if (req.user?.userId === id && targetUser.role === "admin") {
       res.status(400).json({
         error: "No puedes borrar tu propio usuario de administración.",
@@ -612,7 +757,6 @@ app.delete(
       return;
     }
 
-    // Si es admin, comprobar que seguirá habiendo al menos un admin activo
     if (targetUser.role === "admin") {
       const activeAdmins = users.filter(
         (u) => u.role === "admin" && u.isActive && u.id !== id
@@ -632,7 +776,6 @@ app.delete(
       users.splice(index, 1);
     }
 
-    // Eliminar sus horas
     for (let i = hoursStore.length - 1; i >= 0; i--) {
       if (hoursStore[i].userId === id) {
         hoursStore.splice(i, 1);
@@ -647,7 +790,6 @@ app.delete(
 // Administración: horas
 // -------------------------
 
-// Ver horas de cualquier usuario
 app.get(
   "/api/admin/hours",
   authMiddleware,
@@ -674,7 +816,6 @@ app.get(
   }
 );
 
-// PDF de cualquier usuario (admin)
 app.get(
   "/api/admin/hours/pdf",
   authMiddleware,
