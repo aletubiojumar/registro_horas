@@ -5,9 +5,13 @@ import UserList from "../components/UserList";
 import type { AdminUser } from "../components/UserList";
 import AdminHoursViewer from "../components/AdminHoursViewer";
 import UserDataEditor from "../components/UserDataEditor";
+import AdminDocumentsManager from "../components/AdminDocumentsManager";
+import AdminCalendarViewer from "../components/AdminCalendarViewer";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+
+type Tab = "data" | "hours" | "documents" | "calendar";
 
 const AdminPage: React.FC = () => {
   const { user, logout } = useAuth();
@@ -23,121 +27,74 @@ const AdminPage: React.FC = () => {
   const [creatingUser, setCreatingUser] = useState(false);
   const [createErrorMsg, setCreateErrorMsg] = useState<string | null>(null);
 
-  // Tab seleccionado: 'data' o 'hours'
-  const [selectedTab, setSelectedTab] = useState<"data" | "hours">("data");
+  // Tab seleccionado
+  const [selectedTab, setSelectedTab] = useState<Tab>("data");
 
-  // Cargar usuarios al entrar
+  // Cargar usuarios
   useEffect(() => {
     if (!user?.token) return;
-
     setLoadingUsers(true);
     setErrorMsg(null);
-
     fetch(`${API_BASE_URL}/admin/users`, {
-      headers: {
-        Authorization: `Bearer ${user.token}`,
-      },
+      headers: { Authorization: `Bearer ${user.token}` },
     })
       .then(async (res) => {
-        if (!res.ok) {
-          const err = await res.json().catch(() => null);
-          throw new Error(err?.error || "Error al cargar usuarios.");
-        }
+        if (!res.ok) throw new Error((await res.json()).error || "Error");
         return res.json();
       })
-      .then((data) => {
-        setUsers(data.users || []);
-      })
-      .catch((err) => {
-        console.error("Error cargando usuarios admin:", err);
-        setErrorMsg(err.message || "Error al cargar usuarios.");
-      })
+      .then((d) => setUsers(d.users || []))
+      .catch((e) => setErrorMsg(e.message))
       .finally(() => setLoadingUsers(false));
   }, [user?.token]);
 
   const handleToggleActive = async (u: AdminUser) => {
     if (!user?.token) return;
-
-    const endpoint = u.isActive ? "deactivate" : "activate";
-
+    const end = u.isActive ? "deactivate" : "activate";
     try {
       const res = await fetch(
-        `${API_BASE_URL}/admin/users/${u.id}/${endpoint}`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${user.token}`,
-          },
-        }
+        `${API_BASE_URL}/admin/users/${u.id}/${end}`,
+        { method: "PATCH", headers: { Authorization: `Bearer ${user.token}` } }
       );
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        alert(err?.error || "Error al cambiar el estado del usuario.");
-        return;
-      }
-
-      setUsers((prev) =>
-        prev.map((usr) =>
-          usr.id === u.id ? { ...usr, isActive: !u.isActive } : usr
-        )
-      );
-      setSelectedUser((prev) =>
-        prev && prev.id === u.id ? { ...prev, isActive: !u.isActive } : prev
-      );
-    } catch (err) {
-      console.error("Error toggle activo:", err);
-      alert("Error de conexión al cambiar estado del usuario.");
+      if (!res.ok) throw new Error((await res.json()).error);
+      setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, isActive: !u.isActive } : x)));
+      setSelectedUser((p) => (p?.id === u.id ? { ...p, isActive: !u.isActive } : p));
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
   const handleDeleteUser = async (u: AdminUser) => {
     if (!user?.token) return;
-    if (!window.confirm(`¿Seguro que quieres eliminar al usuario "${u.fullName}"?`)) {
-      return;
-    }
-
+    if (!window.confirm(`¿Eliminar a ${u.fullName}?`)) return;
     try {
       const res = await fetch(`${API_BASE_URL}/admin/users/${u.id}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${user.token}`,
-        },
+        headers: { Authorization: `Bearer ${user.token}` },
       });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        alert(err?.error || "Error al eliminar el usuario.");
-        return;
-      }
-
-      setUsers((prev) => prev.filter((usr) => usr.id !== u.id));
-      if (selectedUser?.id === u.id) {
-        setSelectedUser(null);
-      }
-    } catch (err) {
-      console.error("Error eliminando usuario:", err);
-      alert("Error de conexión al eliminar el usuario.");
+      if (!res.ok) throw new Error((await res.json()).error);
+      setUsers((p) => p.filter((x) => x.id !== u.id));
+      if (selectedUser?.id === u.id) setSelectedUser(null);
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateUser = async (ev: React.FormEvent) => {
+    ev.preventDefault();
     if (!user?.token) return;
-
     if (!newUsername.trim()) {
-      setCreateErrorMsg("El nombre del usuario es obligatorio.");
+      setCreateErrorMsg("Nombre obligatorio");
       return;
     }
-
-    // Generar username y contraseña automáticos
-    const timestamp = Date.now();
-    const autoUsername = `usuario${timestamp}`;
-    const autoPassword = `temp${timestamp}`;
-
     setCreatingUser(true);
-    setCreateErrorMsg(null);
-
+    const ts = Date.now();
+    const body = {
+      username: `user${ts}`,
+      fullName: newUsername.trim(),
+      password: `temp${ts}`,
+      role: "worker",
+      vacationDaysPerYear: 23,
+    };
     try {
       const res = await fetch(`${API_BASE_URL}/admin/users`, {
         method: "POST",
@@ -145,38 +102,16 @@ const AdminPage: React.FC = () => {
           Authorization: `Bearer ${user.token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          username: autoUsername,
-          fullName: newUsername.trim(),
-          password: autoPassword,
-          role: "worker",
-          vacationDaysPerYear: 23,
-        }),
+        body: JSON.stringify(body),
       });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        setCreateErrorMsg(err?.error || "Error al crear el usuario.");
-        setCreatingUser(false);
-        return;
-      }
-
-      const data = await res.json();
-      const created: AdminUser = data.user;
-
-      setUsers((prev) => [...prev, created]);
-      
-      // Seleccionar automáticamente el usuario creado y mostrar el tab de datos
+      if (!res.ok) throw new Error((await res.json()).error);
+      const { user: created } = await res.json();
+      setUsers((p) => [...p, created]);
       setSelectedUser(created);
-      setSelectedTab("data");
-      
-      // Limpiar el campo
       setNewUsername("");
-      setCreateErrorMsg(null);
-      
-    } catch (err) {
-      console.error("Error creando usuario:", err);
-      setCreateErrorMsg("Error de conexión al crear el usuario.");
+      setSelectedTab("data");
+    } catch (e: any) {
+      setCreateErrorMsg(e.message);
     } finally {
       setCreatingUser(false);
     }
@@ -187,16 +122,15 @@ const AdminPage: React.FC = () => {
     navigate("/login", { replace: true });
   };
 
-  const handleUserDataUpdated = (updatedUser: AdminUser) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.id === updatedUser.id ? updatedUser : u))
-    );
-    setSelectedUser(updatedUser);
+  const handleUserDataUpdated = (updated: AdminUser) => {
+    setUsers((p) => p.map((u) => (u.id === updated.id ? updated : u)));
+    setSelectedUser(updated);
   };
 
+  /* ---------- UI ---------- */
   return (
     <div style={{ display: "flex", height: "100vh", width: "100%" }}>
-      {/* Panel izquierdo */}
+      {/* Panel izquierdo (igual que antes) */}
       <div
         style={{
           width: "360px",
@@ -209,15 +143,7 @@ const AdminPage: React.FC = () => {
           overflowY: "auto",
         }}
       >
-        {/* Cabecera con info admin y logout */}
-        <div
-          style={{
-            marginBottom: "0.5rem",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.25rem",
-          }}
-        >
+        <div>
           <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>
             Panel de administración
           </div>
@@ -227,10 +153,8 @@ const AdminPage: React.FC = () => {
             </div>
           )}
           <button
-            type="button"
             onClick={handleLogout}
             style={{
-              alignSelf: "flex-start",
               marginTop: "0.25rem",
               padding: "0.25rem 0.6rem",
               borderRadius: "0.35rem",
@@ -248,29 +172,22 @@ const AdminPage: React.FC = () => {
         <div>
           <h2 style={{ marginBottom: "0.5rem" }}>Crear usuario</h2>
           <form onSubmit={handleCreateUser} style={{ fontSize: "0.8rem" }}>
-            <div style={{ marginBottom: "0.5rem" }}>
-              <label>
-                Nombre del usuario:
-                <br />
-                <input
-                  type="text"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="Ej: Juan Pérez"
-                  style={{
-                    width: "100%",
-                    padding: "0.4rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #d1d5db",
-                    fontSize: "0.85rem",
-                  }}
-                />
-              </label>
-            </div>
+            <input
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              placeholder="Nombre completo"
+              style={{
+                width: "100%",
+                padding: "0.4rem",
+                borderRadius: "0.25rem",
+                border: "1px solid #d1d5db",
+                fontSize: "0.85rem",
+              }}
+            />
             {createErrorMsg && (
               <div
                 style={{
-                  marginBottom: "0.5rem",
+                  marginTop: "0.5rem",
                   padding: "0.3rem",
                   borderRadius: "0.25rem",
                   backgroundColor: "#fee2e2",
@@ -286,6 +203,7 @@ const AdminPage: React.FC = () => {
               disabled={creatingUser}
               style={{
                 width: "100%",
+                marginTop: "0.5rem",
                 padding: "0.5rem 0.75rem",
                 borderRadius: "0.35rem",
                 border: "none",
@@ -302,10 +220,10 @@ const AdminPage: React.FC = () => {
           </form>
         </div>
 
-        {/* Lista de usuarios */}
+        {/* Lista usuarios */}
         <div style={{ flexGrow: 1, overflowY: "auto" }}>
           <h2 style={{ marginBottom: "0.5rem" }}>Usuarios</h2>
-          {loadingUsers && <p>Cargando usuarios...</p>}
+          {loadingUsers && <p>Cargando...</p>}
           {errorMsg && (
             <p style={{ color: "#b91c1c", fontSize: "0.8rem" }}>{errorMsg}</p>
           )}
@@ -322,10 +240,10 @@ const AdminPage: React.FC = () => {
       </div>
 
       {/* Panel derecho */}
-      <div style={{ flexGrow: 1, padding: "1rem", overflowY: "auto" }}>
+      <div style={{ flex: 1, padding: "1rem", overflowY: "auto" }}>
         {selectedUser ? (
           <>
-            {/* Tabs */}
+            {/* Pestañas */}
             <div
               style={{
                 display: "flex",
@@ -334,47 +252,39 @@ const AdminPage: React.FC = () => {
                 borderBottom: "1px solid #e5e7eb",
               }}
             >
-              <button
-                onClick={() => setSelectedTab("data")}
-                style={{
-                  padding: "0.5rem 1rem",
-                  border: "none",
-                  borderBottom:
-                    selectedTab === "data" ? "2px solid #2563eb" : "none",
-                  backgroundColor: "transparent",
-                  color: selectedTab === "data" ? "#2563eb" : "#6b7280",
-                  fontWeight: selectedTab === "data" ? 600 : 400,
-                  cursor: "pointer",
-                }}
-              >
-                Datos del usuario
-              </button>
-              <button
-                onClick={() => setSelectedTab("hours")}
-                style={{
-                  padding: "0.5rem 1rem",
-                  border: "none",
-                  borderBottom:
-                    selectedTab === "hours" ? "2px solid #2563eb" : "none",
-                  backgroundColor: "transparent",
-                  color: selectedTab === "hours" ? "#2563eb" : "#6b7280",
-                  fontWeight: selectedTab === "hours" ? 600 : 400,
-                  cursor: "pointer",
-                }}
-              >
-                Horas registradas
-              </button>
+              {(["data", "hours", "documents", "calendar"] as Tab[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setSelectedTab(t)}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    border: "none",
+                    borderBottom:
+                      selectedTab === t ? "2px solid #2563eb" : "none",
+                    backgroundColor: "transparent",
+                    color: selectedTab === t ? "#2563eb" : "#6b7280",
+                    fontWeight: selectedTab === t ? 600 : 400,
+                    cursor: "pointer",
+                  }}
+                >
+                  {t === "data" && "Datos del usuario"}
+                  {t === "hours" && "Horas registradas"}
+                  {t === "documents" && "Documentos"}
+                  {t === "calendar" && "Calendario"}
+                </button>
+              ))}
             </div>
 
-            {/* Contenido del tab */}
+            {/* Contenido según tab */}
             {selectedTab === "data" && (
-              <UserDataEditor
-                user={selectedUser}
-                onUserUpdated={handleUserDataUpdated}
-              />
+              <UserDataEditor user={selectedUser} onUserUpdated={handleUserDataUpdated} />
             )}
-            {selectedTab === "hours" && (
-              <AdminHoursViewer user={selectedUser} />
+            {selectedTab === "hours" && <AdminHoursViewer user={selectedUser} />}
+            {selectedTab === "documents" && (
+              <AdminDocumentsManager user={selectedUser} token={user!.token} />
+            )}
+            {selectedTab === "calendar" && (
+              <AdminCalendarViewer user={selectedUser} token={user!.token} />
             )}
           </>
         ) : (

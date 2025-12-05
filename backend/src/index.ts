@@ -2,6 +2,22 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import multer from "multer";
+import {
+  pool,
+  dbListUsers,
+  dbCreateDemoUser,
+  DbUser,
+  getUserById,
+  getUserByUsername,
+  listUsers,
+  createUser as dbCreateUser,
+  updateUser as dbUpdateUser,
+  setUserActive,
+  deleteUser as dbDeleteUser,
+  countActiveAdmins,
+  comparePassword,
+} from "./db";
 
 // -------------------------
 // Tipos y datos en memoria
@@ -25,25 +41,6 @@ interface CalendarEvent {
 // ✅ UN SOLO almacén en memoria
 const calendarEvents: CalendarEvent[] = [];
 
-interface User {
-  id: string;
-  username: string;
-  fullName: string;
-  password: string; // ¡ADVERTENCIA: Debería ser un hash cifrado!
-  role: Role;
-  isActive: boolean;
-  vacationDaysPerYear?: number;
-  // Datos para la cabecera del PDF
-  workCenter?: string;
-  companyCif?: string;
-  companyCcc?: string;
-  workerLastName?: string;
-  workerFirstName?: string;
-  workerNif?: string;
-  workerSsNumber?: string;
-  avatarDataUrl?: string | null;
-}
-
 type AbsenceType = "none" | "vacation" | "nonWorkingDay" | "medical";
 
 interface StoredDay {
@@ -56,6 +53,8 @@ interface StoredDay {
   absenceType?: AbsenceType;
   hasSignature?: boolean;
 }
+
+const hoursStore: MonthHours[] = [];
 
 interface MonthHours {
   userId: string;
@@ -76,7 +75,7 @@ interface Payroll {
   ownerId: string;
   month: string;
   year: string;
-  fileName: string
+  fileName: string;
 }
 
 interface Citation {
@@ -84,60 +83,19 @@ interface Citation {
   ownerId: string;
   title: string;
   issuedAt: string;
-  fileName: string
+  fileName: string;
+}
+
+interface ContractDoc {
+  ownerId: string;
+  fileName: string;
 }
 
 const payrollsDb: Payroll[] = [];
 const citationsDb: Citation[] = [];
+const contractDb: ContractDoc[] = [];
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-demo";
-
-const users: User[] = [
-  {
-    id: "1",
-    username: "admin",
-    fullName: "Usuario Administración",
-    password: "admin123",
-    role: "admin",
-    isActive: true,
-    vacationDaysPerYear: 23,
-    workCenter: "Centro principal",
-    companyCif: "B23653157",
-    companyCcc: "14/10631457/33",
-    workerLastName: "Administración",
-    workerFirstName: "Usuario",
-    workerNif: "",
-    workerSsNumber: "",
-  },
-  {
-    id: "2",
-    username: "trabajador1",
-    fullName: "Trabajador Uno",
-    password: "password1",
-    role: "worker",
-    isActive: true,
-    vacationDaysPerYear: 23,
-    workCenter: "Centro principal",
-    companyCif: "B23653157",
-    companyCcc: "14/10631457/33",
-    workerLastName: "Uno",
-    workerFirstName: "Trabajador",
-    workerNif: "",
-    workerSsNumber: "",
-  },
-];
-
-const hoursStore: MonthHours[] = [];
-
-// -------------------------
-// Helpers
-// -------------------------
-
-const findUserById = (id: string): User | undefined =>
-  users.find((u) => u.id === id);
-
-const findUserByUsername = (username: string): User | undefined =>
-  users.find((u) => u.username === username);
 
 const findMonthHours = (
   userId: string,
@@ -223,11 +181,16 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
+// Healthcheck para AWS / load balancer
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
 // -------------------------
 // Auth
 // -------------------------
 
-app.post("/api/auth/login", (req: Request, res: Response) => {
+app.post("/api/auth/login", async (req: Request, res: Response) => {
   const { username, password } = req.body as {
     username?: string;
     password?: string;
@@ -238,37 +201,47 @@ app.post("/api/auth/login", (req: Request, res: Response) => {
     return;
   }
 
-  const user = findUserByUsername(username);
+  try {
+    const user = await getUserByUsername(username);
 
-  // NOTA DE SEGURIDAD: Aquí es donde se debería usar 'comparePassword(password, user.password)'
-  if (!user || user.password !== password) {
-    res.status(401).json({ error: "Usuario o contraseña incorrectos" });
-    return;
-  }
+    if (!user) {
+      res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+      return;
+    }
 
-  if (!user.isActive) {
-    res.status(403).json({ error: "Usuario desactivado" });
-    return;
-  }
+    if (!user.is_active) {
+      res.status(403).json({ error: "Usuario desactivado" });
+      return;
+    }
 
-  const payload: CustomJwtPayload = {
-    userId: user.id,
-    username: user.username,
-    role: user.role,
-  };
+    const ok = await comparePassword(password, user.password_hash);
+    if (!ok) {
+      res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+      return;
+    }
 
-  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "8h" });
-
-  res.json({
-    token,
-    user: {
-      id: user.id,
+    const payload: CustomJwtPayload = {
+      userId: user.id,
       username: user.username,
-      fullName: user.fullName,
       role: user.role,
-      vacationDaysPerYear: user.vacationDaysPerYear,
-    },
-  });
+    };
+
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "8h" });
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.full_name,
+        role: user.role,
+        vacationDaysPerYear: user.vacation_days_per_year,
+      },
+    });
+  } catch (err) {
+    console.error("Error en login:", err);
+    res.status(500).json({ error: "Error interno de servidor" });
+  }
 });
 
 // -------------------------
@@ -324,7 +297,7 @@ app.put("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
   }
 
   entry.days = days.map((d) => {
-    const absence: AbsenceType = d.absenceType ?? "none";
+    const absence: AbsenceType = (d.absenceType as AbsenceType) ?? "none";
 
     const morningMinutes = computeMinutes(d.morningIn, d.morningOut);
     const afternoonMinutes = computeMinutes(d.afternoonIn, d.afternoonOut);
@@ -351,7 +324,7 @@ app.put("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
 
 async function createPdfForMonth(
   monthData: MonthHours,
-  user: User
+  user: DbUser
 ): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([595.28, 841.89]);
@@ -361,6 +334,7 @@ async function createPdfForMonth(
   const { width, height } = page.getSize();
   const margin = 40;
   let y = height - margin;
+  const safe = (value?: string | null) => value ?? "";
 
   const drawText = (
     text: string,
@@ -385,18 +359,12 @@ async function createPdfForMonth(
   // Empresa y Centro
   drawText(`Empresa: JUMAR INGEN. Y PERITAC. S.L.`, margin, y, false, 9);
   y -= 14;
-  drawText(
-    `Centro de Trabajo: ${user.workCenter || ""}`,
-    margin,
-    y,
-    false,
-    9
-  );
+  drawText(`Centro de Trabajo: ${safe(user.work_center)}`, margin, y, false, 9);
   y -= 14;
-  drawText(`CIF: ${user.companyCif || ""}`, margin, y, false, 9);
+  drawText(`CIF: ${safe(user.company_cif)}`, margin, y, false, 9);
   y -= 14;
   drawText(
-    `Código de Cuenta de Cotización: ${user.companyCcc || ""}`,
+    `Código de Cuenta de Cotización: ${safe(user.company_ccc)}`,
     margin,
     y,
     false,
@@ -406,17 +374,21 @@ async function createPdfForMonth(
 
   // Trabajador
   drawText(
-    `Trabajador: ${user.workerLastName || ""} ${user.workerFirstName || ""}`,
+    `Trabajador: ${safe(user.worker_last_name)} ${safe(
+      user.worker_first_name
+    )}`,
     margin,
     y,
     false,
     9
   );
   y -= 14;
-  drawText(`NIF: ${user.workerNif || ""}`, margin, y, false, 9);
+  drawText(`NIF: ${safe(user.worker_nif)}`, margin, y, false, 9);
   y -= 14;
   drawText(
-    `Número de afiliación a la Seguridad Social: ${user.workerSsNumber || ""}`,
+    `Número de afiliación a la Seguridad Social: ${safe(
+      user.worker_ss_number
+    )}`,
     margin,
     y,
     false,
@@ -428,13 +400,7 @@ async function createPdfForMonth(
   const monthName = new Intl.DateTimeFormat("es-ES", {
     month: "long",
   }).format(new Date(monthData.year, monthData.month - 1, 1));
-  drawText(
-    `Mes y Año: ${monthName} ${monthData.year}`,
-    margin,
-    y,
-    true,
-    10
-  );
+  drawText(`Mes y Año: ${monthName} ${monthData.year}`, margin, y, true, 10);
   y -= 25;
 
   // TABLA DE HORAS
@@ -523,7 +489,9 @@ app.get(
     const month = Number(req.query.month);
 
     if (!year || !month) {
-      res.status(400).json({ error: "Parámetros year y month son obligatorios" });
+      res
+        .status(400)
+        .json({ error: "Parámetros year y month son obligatorios" });
       return;
     }
 
@@ -533,7 +501,12 @@ app.get(
       return;
     }
 
-    const user = findUserById(userId)!;
+    const user = await getUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: "Usuario no encontrado" });
+      return;
+    }
+
     const pdfBytes = await createPdfForMonth(monthData, user);
 
     res.setHeader("Content-Type", "application/pdf");
@@ -545,280 +518,6 @@ app.get(
       )}_${user.username}.pdf"`
     );
     res.send(Buffer.from(pdfBytes));
-  }
-);
-
-// -------------------------
-// Administración: usuarios
-// -------------------------
-
-app.get(
-  "/api/admin/users",
-  authMiddleware,
-  adminOnlyMiddleware,
-  (req: AuthRequest, res: Response) => {
-    res.json({
-      users: users.map((u) => ({
-        id: u.id,
-        username: u.username,
-        fullName: u.fullName,
-        role: u.role,
-        isActive: u.isActive,
-        vacationDaysPerYear: u.vacationDaysPerYear,
-        workCenter: u.workCenter,
-        companyCif: u.companyCif,
-        companyCcc: u.companyCcc,
-        workerLastName: u.workerLastName,
-        workerFirstName: u.workerFirstName,
-        workerNif: u.workerNif,
-        workerSsNumber: u.workerSsNumber,
-      })),
-    });
-  }
-);
-
-app.post(
-  "/api/admin/users",
-  authMiddleware,
-  adminOnlyMiddleware,
-  (req: AuthRequest, res: Response) => {
-    const {
-      username,
-      fullName,
-      password,
-      role,
-      vacationDaysPerYear,
-      workCenter,
-      companyCif,
-      companyCcc,
-      workerLastName,
-      workerFirstName,
-      workerNif,
-      workerSsNumber,
-    } = req.body as Partial<User> & {
-      username: string;
-      fullName: string;
-      password: string;
-    };
-
-    if (!username || !fullName || !password) {
-      res.status(400).json({
-        error: "username, fullName y password son obligatorios",
-      });
-      return;
-    }
-
-    if (findUserByUsername(username)) {
-      res.status(400).json({ error: "Ya existe un usuario con ese username" });
-      return;
-    }
-
-    const id = String(Date.now());
-
-    const newUser: User = {
-      id,
-      username,
-      fullName,
-      password, // Debería ser cifrada antes de guardar
-      role: role || "worker",
-      isActive: true,
-      vacationDaysPerYear: vacationDaysPerYear ?? 23,
-      workCenter: workCenter || "",
-      companyCif: companyCif || "",
-      companyCcc: companyCcc || "",
-      workerLastName: workerLastName || "",
-      workerFirstName: workerFirstName || "",
-      workerNif: workerNif || "",
-      workerSsNumber: workerSsNumber || "",
-    };
-
-    users.push(newUser);
-
-    res.json({
-      user: {
-        id: newUser.id,
-        username: newUser.username,
-        fullName: newUser.fullName,
-        role: newUser.role,
-        isActive: newUser.isActive,
-        vacationDaysPerYear: newUser.vacationDaysPerYear,
-        workCenter: newUser.workCenter,
-        companyCif: newUser.companyCif,
-        companyCcc: newUser.companyCcc,
-        workerLastName: newUser.workerLastName,
-        workerFirstName: newUser.workerFirstName,
-        workerNif: newUser.workerNif,
-        workerSsNumber: newUser.workerSsNumber,
-      },
-    });
-  }
-);
-
-// CORRECCIÓN APLICADA AQUÍ:
-app.patch(
-  "/api/admin/users/:id",
-  authMiddleware,
-  adminOnlyMiddleware,
-  (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    const targetUser = findUserById(id);
-
-    if (!targetUser) {
-      res.status(404).json({ error: "Usuario no encontrado" });
-      return;
-    }
-
-    const {
-      username,
-      password, // Campo que queremos actualizar
-      fullName,
-      vacationDaysPerYear,
-      workCenter,
-      companyCif,
-      companyCcc,
-      workerLastName,
-      workerFirstName,
-      workerNif,
-      workerSsNumber,
-    } = req.body as Partial<User>;
-
-    // Si se intenta cambiar el username, verificar que no exista otro usuario con ese username
-    if (username !== undefined && username !== targetUser.username) {
-      const existingUser = findUserByUsername(username);
-      if (existingUser && existingUser.id !== id) {
-        res.status(400).json({ error: "Ya existe un usuario con ese username" });
-        return;
-      }
-      targetUser.username = username;
-    }
-
-    // Lógica de corrección: Actualizar la contraseña si se proporciona y no está vacía.
-    if (password !== undefined && password.trim() !== "") {
-      // En un entorno seguro, aquí iría: targetUser.password = await hashPassword(password);
-      targetUser.password = password;
-    }
-
-    if (fullName !== undefined) targetUser.fullName = fullName;
-    if (vacationDaysPerYear !== undefined)
-      targetUser.vacationDaysPerYear = vacationDaysPerYear;
-    if (workCenter !== undefined) targetUser.workCenter = workCenter;
-    if (companyCif !== undefined) targetUser.companyCif = companyCif;
-    if (companyCcc !== undefined) targetUser.companyCcc = companyCcc;
-    if (workerLastName !== undefined) targetUser.workerLastName = workerLastName;
-    if (workerFirstName !== undefined)
-      targetUser.workerFirstName = workerFirstName;
-    if (workerNif !== undefined) targetUser.workerNif = workerNif;
-    if (workerSsNumber !== undefined) targetUser.workerSsNumber = workerSsNumber;
-
-    // Aseguramos que el objeto devuelto no contenga el password
-    const { password: userPassword, ...userResponse } = targetUser;
-
-    res.json({ ok: true, user: userResponse });
-  }
-);
-
-app.patch(
-  "/api/admin/users/:id/deactivate",
-  authMiddleware,
-  adminOnlyMiddleware,
-  (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    const targetUser = findUserById(id);
-
-    if (!targetUser) {
-      res.status(404).json({ error: "Usuario no encontrado" });
-      return;
-    }
-
-    if (req.user?.userId === id && targetUser.role === "admin") {
-      res.status(400).json({
-        error: "No puedes desactivar tu propio usuario de administración.",
-      });
-      return;
-    }
-
-    if (targetUser.role === "admin") {
-      const activeAdmins = users.filter(
-        (u) => u.role === "admin" && u.isActive
-      ).length;
-
-      if (activeAdmins <= 1) {
-        res.status(400).json({
-          error: "Debe existir al menos un administrador activo en el sistema.",
-        });
-        return;
-      }
-    }
-
-    targetUser.isActive = false;
-    res.json({ ok: true });
-  }
-);
-
-app.patch(
-  "/api/admin/users/:id/activate",
-  authMiddleware,
-  adminOnlyMiddleware,
-  (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    const targetUser = findUserById(id);
-
-    if (!targetUser) {
-      res.status(404).json({ error: "Usuario no encontrado" });
-      return;
-    }
-
-    targetUser.isActive = true;
-    res.json({ ok: true });
-  }
-);
-
-app.delete(
-  "/api/admin/users/:id",
-  authMiddleware,
-  adminOnlyMiddleware,
-  (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    const targetUser = findUserById(id);
-
-    if (!targetUser) {
-      res.status(404).json({ error: "Usuario no encontrado" });
-      return;
-    }
-
-    if (req.user?.userId === id && targetUser.role === "admin") {
-      res.status(400).json({
-        error: "No puedes borrar tu propio usuario de administración.",
-      });
-      return;
-    }
-
-    if (targetUser.role === "admin") {
-      const activeAdmins = users.filter(
-        (u) => u.role === "admin" && u.isActive && u.id !== id
-      ).length;
-
-      if (activeAdmins < 1) {
-        res.status(400).json({
-          error:
-            "No se puede eliminar este administrador porque es el único administrador activo.",
-        });
-        return;
-      }
-    }
-
-    const index = users.findIndex((u) => u.id === id);
-    if (index !== -1) {
-      users.splice(index, 1);
-    }
-
-    for (let i = hoursStore.length - 1; i >= 0; i--) {
-      if (hoursStore[i].userId === id) {
-        hoursStore.splice(i, 1);
-      }
-    }
-
-    res.json({ ok: true });
   }
 );
 
@@ -874,7 +573,7 @@ app.get(
       return;
     }
 
-    const targetUser = findUserById(userId);
+    const targetUser = await getUserById(userId);
     if (!targetUser) {
       res.status(404).json({ error: "Usuario no encontrado" });
       return;
@@ -895,27 +594,72 @@ app.get(
 );
 
 // GET /api/profile  (devuelve datos propios + avatar)
-app.get("/api/profile", authMiddleware, (req: AuthRequest, res: Response) => {
-  const u = findUserById(req.user!.userId);
-  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
-  const { password, ...rest } = u;
-  res.json(rest);
-});
+app.get(
+  "/api/profile",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const u = await getUserById(req.user!.userId);
+      if (!u)
+        return res.status(404).json({ error: "Usuario no encontrado" });
+
+      res.json({
+        id: u.id,
+        username: u.username,
+        fullName: u.full_name,
+        vacationDaysPerYear: u.vacation_days_per_year,
+        workCenter: u.work_center,
+        companyCif: u.company_cif,
+        companyCcc: u.company_ccc,
+        workerLastName: u.worker_last_name,
+        workerFirstName: u.worker_first_name,
+        workerNif: u.worker_nif,
+        workerSsNumber: u.worker_ss_number,
+        avatarDataUrl: u.avatar_data_url,
+      });
+    } catch (err) {
+      console.error("Error en /api/profile:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
 
 // PUT /api/profile/avatar  (guarda o cambia avatar en base64)
-app.put("/api/profile/avatar", authMiddleware, (req: AuthRequest, res: Response) => {
-  const { avatarDataUrl } = req.body;
-  const u = findUserById(req.user!.userId);
-  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
-  u.avatarDataUrl = avatarDataUrl || null;
-  res.json({ ok: true });
-});
+app.put(
+  "/api/profile/avatar",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const { avatarDataUrl } = req.body;
+    try {
+      await pool.query(
+        `UPDATE users SET avatar_data_url = $1, updated_at = NOW() WHERE id = $2`,
+        [avatarDataUrl || null, req.user!.userId]
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error al actualizar avatar:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
 
 // GET usuarios para selector
-app.get("/api/calendar/users", authMiddleware, (req: AuthRequest, res) => {
-  const list = users.map((u) => ({ id: u.id, fullName: u.fullName }));
-  res.json({ users: list });
+app.get("/api/calendar/users", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const all = await listUsers();
+    const list = all.map((u: DbUser) => ({
+      id: u.id,
+      fullName: u.full_name,
+      role: u.role,
+    }));
+    res.json({ users: list });
+  } catch (err) {
+    console.error("Error en /api/calendar/users:", err);
+    res.status(500).json({ error: "Error interno de servidor" });
+  }
 });
+
 
 // GET eventos visibles para el que consulta
 app.get("/api/calendar/events", authMiddleware, (req: AuthRequest, res) => {
@@ -931,8 +675,31 @@ app.get("/api/calendar/events", authMiddleware, (req: AuthRequest, res) => {
 
 // POST nuevo evento
 app.post("/api/calendar/events", authMiddleware, (req: AuthRequest, res) => {
-  const { type, date, visibility, viewers, status, medicalJustificationDataUrl } = req.body;
-  if (!type || !date) return res.status(400).json({ error: "Faltan campos" });
+  const {
+    type,
+    date,
+    visibility,
+    viewers,
+    status,
+    medicalJustificationDataUrl,
+  } = req.body;
+  if (!type || !date)
+    return res.status(400).json({ error: "Faltan campos" });
+
+  // ❗ Regla: no permitir más de unas vacaciones por día y usuario
+  if (type === "vacaciones") {
+    const existsSameDayVacation = calendarEvents.some(
+      (e) =>
+        e.ownerId === req.user!.userId &&
+        e.type === "vacaciones" &&
+        e.date === date
+    );
+    if (existsSameDayVacation) {
+      return res
+        .status(400)
+        .json({ error: "Ya tienes unas vacaciones ese día." });
+    }
+  }
 
   const newEvent: CalendarEvent = {
     id: String(Date.now()),
@@ -942,82 +709,564 @@ app.post("/api/calendar/events", authMiddleware, (req: AuthRequest, res) => {
     visibility: visibility || "only-me",
     viewers: viewers || undefined,
     status: status || undefined,
-    medicalJustificationFileName: medicalJustificationDataUrl ? "justificante.png" : undefined,
+    medicalJustificationFileName: medicalJustificationDataUrl
+      ? "justificante.png"
+      : undefined,
   };
 
   calendarEvents.push(newEvent);
   res.json(newEvent);
 });
 
-// GET días de vacaciones restantes
-app.get("/api/calendar/vacation-days-left", authMiddleware, (req: AuthRequest, res) => {
-  const u = findUserById(req.user!.userId);
-  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
-  const approved = calendarEvents.filter(
-    (e) => e.ownerId === req.user!.userId && e.type === "vacaciones" && e.status === "approved"
-  ).length;
-  const left = (u.vacationDaysPerYear || 23) - approved;
-  res.json({ daysLeft: left });
-});
+// PATCH evento (cambio de tipo, status, visibilidad, viewers)
+app.patch(
+  "/api/calendar/events/:id",
+  authMiddleware,
+  (req: AuthRequest, res: Response) => {
+    const ev = calendarEvents.find((e) => e.id === req.params.id);
+    if (!ev) return res.status(404).json({ error: "Evento no encontrado" });
 
-//ENDPOINTS DE CALENDARIO AÑADIDOS
+    // Solo el dueño o un admin pueden modificar
+    if (ev.ownerId !== req.user!.userId && req.user!.role !== "admin") {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const { type, status, visibility, viewers } = req.body as Partial<
+      CalendarEvent
+    >;
+
+    if (type && type !== ev.type) {
+      if (type === "vacaciones") {
+        const existsSameDayVacation = calendarEvents.some(
+          (e) =>
+            e.id !== ev.id &&
+            e.ownerId === ev.ownerId &&
+            e.type === "vacaciones" &&
+            e.date === ev.date
+        );
+        if (existsSameDayVacation) {
+          return res.status(400).json({
+            error: "Ya existe un evento de vacaciones para ese día.",
+          });
+        }
+      }
+      ev.type = type;
+    }
+
+    if (status !== undefined) {
+      ev.status = status;
+    }
+
+    if (visibility !== undefined) {
+      ev.visibility = visibility;
+    }
+
+    if (Array.isArray(viewers)) {
+      ev.viewers = viewers;
+    }
+
+    res.json(ev);
+  }
+);
+
+// DELETE evento
+app.delete(
+  "/api/calendar/events/:id",
+  authMiddleware,
+  (req: AuthRequest, res: Response) => {
+    const idx = calendarEvents.findIndex((e) => e.id === req.params.id);
+    if (idx === -1)
+      return res.status(404).json({ error: "Evento no encontrado" });
+
+    const ev = calendarEvents[idx];
+
+    if (ev.ownerId !== req.user!.userId && req.user!.role !== "admin") {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    calendarEvents.splice(idx, 1);
+    // Los días de vacaciones se recalculan automáticamente en /vacation-days-left
+    res.json({ ok: true });
+  }
+);
+
+// GET días de vacaciones restantes
+app.get(
+  "/api/calendar/vacation-days-left",
+  authMiddleware,
+  async (req: AuthRequest, res) => {
+    try {
+      const u = await getUserById(req.user!.userId);
+      if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+
+      // De momento contamos solo las aprobadas
+      const approved = calendarEvents.filter(
+        (e) =>
+          e.ownerId === req.user!.userId &&
+          e.type === "vacaciones" &&
+          e.status === "approved"
+      ).length;
+      const left = (u.vacation_days_per_year ?? 23) - approved;
+      res.json({ daysLeft: left });
+    } catch (err) {
+      console.error("Error en /api/calendar/vacation-days-left:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
 // ====== MIS DOCUMENTOS ======
 
 /* 1. Listado de nóminas del usuario */
-app.get("/api/documents/payrolls", authMiddleware, (req: AuthRequest, res) => {
-  const list = payrollsDb.filter(p => p.ownerId === req.user!.userId);
-  res.json({ payrolls: list });
-});
+app.get(
+  "/api/documents/payrolls",
+  authMiddleware,
+  (req: AuthRequest, res) => {
+    const list = payrollsDb.filter((p) => p.ownerId === req.user!.userId);
+    res.json({ payrolls: list });
+  }
+);
 
 /* 2. Descarga de una nómina */
-app.get("/api/documents/payrolls/:id/download", authMiddleware, (req: AuthRequest, res) => {
-  const pay = payrollsDb.find(p => p.id === req.params.id && p.ownerId === req.user!.userId);
-  if (!pay) return res.status(404).json({ error: "Nómina no encontrada" });
+app.get(
+  "/api/documents/payrolls/:id/download",
+  authMiddleware,
+  (req: AuthRequest, res) => {
+    const pay = payrollsDb.find(
+      (p) => p.id === req.params.id && p.ownerId === req.user!.userId
+    );
+    if (!pay) return res.status(404).json({ error: "Nómina no encontrada" });
 
-  // Fichero simulado: buffer de 1 kB con texto
-  const fakeBuffer = Buffer.from(`CONTENIDO DE LA NÓMINA ${pay.fileName}\n`);
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="${pay.fileName}"`);
-  res.send(fakeBuffer);
-});
+    // Fichero simulado
+    const fakeBuffer = Buffer.from(
+      `CONTENIDO DE LA NÓMINA ${pay.fileName}\n`
+    );
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${pay.fileName}"`
+    );
+    res.send(fakeBuffer);
+  }
+);
 
 /* 3. Contrato del usuario */
-app.get("/api/documents/contract", authMiddleware, (req: AuthRequest, res) => {
-  const user = findUserById(req.user!.userId);
-  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+app.get(
+  "/api/documents/contract",
+  authMiddleware,
+  async (req: AuthRequest, res) => {
+    try {
+      const user = await getUserById(req.user!.userId);
+      if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
 
-  // Suponemos un único contrato por usuario
-  const fileName = `contrato_${user.username}.pdf`;
-  res.json({ contract: { fileName } });
-});
+      const fileName = `contrato_${user.username}.pdf`;
+      res.json({ contract: { fileName } });
+    } catch (err) {
+      console.error("Error en /api/documents/contract:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
 
 /* 4. Descarga del contrato */
-app.get("/api/documents/contract/download", authMiddleware, (req: AuthRequest, res) => {
-  const user = findUserById(req.user!.userId);
-  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+app.get(
+  "/api/documents/contract/download",
+  authMiddleware,
+  async (req: AuthRequest, res) => {
+    try {
+      const user = await getUserById(req.user!.userId);
+      if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
 
-  const fileName = `contrato_${user.username}.pdf`;
-  const fakeBuffer = Buffer.from(`CONTRATO DE TRABAJO DE ${user.fullName}\n`);
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-  res.send(fakeBuffer);
-});
+      const fileName = `contrato_${user.username}.pdf`;
+      const fakeBuffer = Buffer.from(
+        `CONTRATO DE TRABAJO DE ${user.full_name}\n`
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${fileName}"`
+      );
+      res.send(fakeBuffer);
+    } catch (err) {
+      console.error("Error en /api/documents/contract/download:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
 
 /* 5. Listado de citaciones */
-app.get("/api/documents/citations", authMiddleware, (req: AuthRequest, res) => {
-  const list = citationsDb.filter(c => c.ownerId === req.user!.userId);
-  res.json({ citations: list });
-});
+app.get(
+  "/api/documents/citations",
+  authMiddleware,
+  (req: AuthRequest, res) => {
+    const list = citationsDb.filter((c) => c.ownerId === req.user!.userId);
+    res.json({ citations: list });
+  }
+);
 
 /* 6. Descarga de una citación */
-app.get("/api/documents/citations/:id/download", authMiddleware, (req: AuthRequest, res) => {
-  const cit = citationsDb.find(c => c.id === req.params.id && c.ownerId === req.user!.userId);
-  if (!cit) return res.status(404).json({ error: "Citación no encontrada" });
+app.get(
+  "/api/documents/citations/:id/download",
+  authMiddleware,
+  (req: AuthRequest, res) => {
+    const cit = citationsDb.find(
+      (c) => c.id === req.params.id && c.ownerId === req.user!.userId
+    );
+    if (!cit) return res.status(404).json({ error: "Citación no encontrada" });
 
-  const fakeBuffer = Buffer.from(`CITACIÓN: ${cit.title}\nFecha: ${cit.issuedAt}\n`);
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="${cit.fileName}"`);
-  res.send(fakeBuffer);
+    const fakeBuffer = Buffer.from(
+      `CITACIÓN: ${cit.title}\nFecha: ${cit.issuedAt}\n`
+    );
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${cit.fileName}"`
+    );
+    res.send(fakeBuffer);
+  }
+);
+
+// ====== ADMIN: CALENDARIO ======
+// LISTADO
+app.get(
+  "/api/admin/users",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const all = await listUsers();
+      res.json({
+        users: all.map((u: DbUser) => ({
+          id: u.id,
+          username: u.username,
+          fullName: u.full_name,
+          role: u.role,
+          isActive: u.is_active,
+          vacationDaysPerYear: u.vacation_days_per_year,
+          workCenter: u.work_center,
+          companyCif: u.company_cif,
+          companyCcc: u.company_ccc,
+          workerLastName: u.worker_last_name,
+          workerFirstName: u.worker_first_name,
+          workerNif: u.worker_nif,
+          workerSsNumber: u.worker_ss_number,
+        })),
+      });
+    } catch (err) {
+      console.error("Error listando usuarios:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
+// ALTA
+app.post(
+  "/api/admin/users",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const {
+      username,
+      fullName,
+      password,
+      role,
+      vacationDaysPerYear,
+      workCenter,
+      companyCif,
+      companyCcc,
+      workerLastName,
+      workerFirstName,
+      workerNif,
+      workerSsNumber,
+    } = req.body as any;
+
+    if (!username || !fullName || !password) {
+      res.status(400).json({
+        error: "username, fullName y password son obligatorios",
+      });
+      return;
+    }
+
+    try {
+      const existing = await getUserByUsername(username);
+      if (existing) {
+        res
+          .status(400)
+          .json({ error: "Ya existe un usuario con ese username" });
+        return;
+      }
+
+      const newUser = await dbCreateUser({
+        username,
+        full_name: fullName,
+        password,
+        role,
+        vacation_days_per_year: vacationDaysPerYear,
+        work_center: workCenter,
+        company_cif: companyCif,
+        company_ccc: companyCcc,
+        worker_last_name: workerLastName,
+        worker_first_name: workerFirstName,
+        worker_nif: workerNif,
+        worker_ss_number: workerSsNumber,
+      } as any);
+
+      res.json({
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          fullName: newUser.full_name,
+          role: newUser.role,
+          isActive: newUser.is_active,
+          vacationDaysPerYear: newUser.vacation_days_per_year,
+          workCenter: newUser.work_center,
+          companyCif: newUser.company_cif,
+          companyCcc: newUser.company_ccc,
+          workerLastName: newUser.worker_last_name,
+          workerFirstName: newUser.worker_first_name,
+          workerNif: newUser.worker_nif,
+          workerSsNumber: newUser.worker_ss_number,
+        },
+      });
+    } catch (err) {
+      console.error("Error creando usuario:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
+// EDICIÓN
+app.patch(
+  "/api/admin/users/:id",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+
+    try {
+      const targetUser = await getUserById(id);
+      if (!targetUser) {
+        res.status(404).json({ error: "Usuario no encontrado" });
+        return;
+      }
+
+      const {
+        username,
+        password,
+        fullName,
+        vacationDaysPerYear,
+        workCenter,
+        companyCif,
+        companyCcc,
+        workerLastName,
+        workerFirstName,
+        workerNif,
+        workerSsNumber,
+      } = req.body as any;
+
+      if (username !== undefined && username !== targetUser.username) {
+        const existingUser = await getUserByUsername(username);
+        if (existingUser && existingUser.id !== id) {
+          res
+            .status(400)
+            .json({ error: "Ya existe un usuario con ese username" });
+          return;
+        }
+      }
+
+      const updated = await dbUpdateUser(id, {
+        username,
+        password,
+        full_name: fullName,
+        vacation_days_per_year: vacationDaysPerYear,
+        work_center: workCenter,
+        company_cif: companyCif,
+        company_ccc: companyCcc,
+        worker_last_name: workerLastName,
+        worker_first_name: workerFirstName,
+        worker_nif: workerNif,
+        worker_ss_number: workerSsNumber,
+      } as any);
+
+      if (!updated) {
+        res.status(404).json({ error: "Usuario no encontrado" });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        user: {
+          id: updated.id,
+          username: updated.username,
+          fullName: updated.full_name,
+          role: updated.role,
+          isActive: updated.is_active,
+          vacationDaysPerYear: updated.vacation_days_per_year,
+          workCenter: updated.work_center,
+          companyCif: updated.company_cif,
+          companyCcc: updated.company_ccc,
+          workerLastName: updated.worker_last_name,
+          workerFirstName: updated.worker_first_name,
+          workerNif: updated.worker_nif,
+          workerSsNumber: updated.worker_ss_number,
+        },
+      });
+    } catch (err) {
+      console.error("Error actualizando usuario:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
+// DESACTIVAR
+app.patch(
+  "/api/admin/users/:id/deactivate",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    try {
+      const targetUser = await getUserById(id);
+      if (!targetUser) {
+        res.status(404).json({ error: "Usuario no encontrado" });
+        return;
+      }
+
+      if (req.user?.userId === id && targetUser.role === "admin") {
+        res.status(400).json({
+          error: "No puedes desactivar tu propio usuario de administración.",
+        });
+        return;
+      }
+
+      if (targetUser.role === "admin") {
+        const activeAdmins = await countActiveAdmins(id);
+        if (activeAdmins < 1) {
+          res.status(400).json({
+            error: "Debe existir al menos un administrador activo en el sistema.",
+          });
+          return;
+        }
+      }
+
+      await setUserActive(id, false);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error desactivando usuario:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
+// ACTIVAR
+app.patch(
+  "/api/admin/users/:id/activate",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    try {
+      const targetUser = await getUserById(id);
+      if (!targetUser) {
+        res.status(404).json({ error: "Usuario no encontrado" });
+        return;
+      }
+
+      await setUserActive(id, true);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error activando usuario:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
+// BORRAR
+app.delete(
+  "/api/admin/users/:id",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    try {
+      const targetUser = await getUserById(id);
+      if (!targetUser) {
+        res.status(404).json({ error: "Usuario no encontrado" });
+        return;
+      }
+
+      if (req.user?.userId === id && targetUser.role === "admin") {
+        res.status(400).json({
+          error: "No puedes borrar tu propio usuario de administración.",
+        });
+        return;
+      }
+
+      if (targetUser.role === "admin") {
+        const activeAdmins = await countActiveAdmins(id);
+        if (activeAdmins < 1) {
+          res.status(400).json({
+            error:
+              "No se puede eliminar este administrador porque es el único administrador activo.",
+          });
+          return;
+        }
+      }
+
+      await dbDeleteUser(id);
+
+      // Mientras horas estén en memoria, mantenemos esto:
+      for (let i = hoursStore.length - 1; i >= 0; i--) {
+        if (hoursStore[i].userId === id) {
+          hoursStore.splice(i, 1);
+        }
+      }
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error borrando usuario:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
+// Comprobar que la API está viva
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+// Comprobar que la BD responde y listar usuarios (solo pruebas)
+app.get("/api/debug/db-users", async (req, res) => {
+  try {
+    const users = await dbListUsers();
+    res.json({
+      count: users.length,
+      users: users.map((u: DbUser) => ({
+        id: u.id,
+        username: u.username,
+        fullName: u.full_name,
+        role: u.role,
+        isActive: u.is_active,
+      })),
+    });
+  } catch (err) {
+    console.error("Error en /api/debug/db-users:", err);
+    res.status(500).json({ error: "Error consultando la BD" });
+  }
+});
+
+app.post("/api/debug/db-users/demo", async (req, res) => {
+  try {
+    const newUser = await dbCreateDemoUser();
+    res.json({
+      id: newUser.id,
+      username: newUser.username,
+      fullName: newUser.full_name,
+    });
+  } catch (err) {
+    console.error("Error en /api/debug/db-users/demo:", err);
+    res.status(500).json({ error: "Error insertando demo en la BD" });
+  }
 });
 
 // -------------------------
@@ -1025,5 +1274,9 @@ app.get("/api/documents/citations/:id/download", authMiddleware, (req: AuthReque
 // -------------------------
 
 app.listen(PORT, () => {
-  console.log(`API de registro de horas escuchando en http://localhost:${PORT}`);
+  console.log(
+    `API de registro de horas escuchando en http://localhost:${PORT}`
+  );
 });
+
+export default app;
