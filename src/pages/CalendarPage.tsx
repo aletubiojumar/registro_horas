@@ -32,8 +32,14 @@ const CalendarPage: React.FC = () => {
     const [viewers, setViewers] = useState<string[]>([]);
 
     // Mes actual
-    const [currentMonth, setCurrentMonth] = useState(11); // 0-11 (diciembre por defecto)
-    const [currentYear, setCurrentYear] = useState(2025);
+    const [currentMonth, setCurrentMonth] = useState(() => {
+        const today = new Date();
+        return today.getMonth(); // Devuelve 11 para diciembre, 0 para enero, etc.
+    });
+    const [currentYear, setCurrentYear] = useState(() => {
+        const today = new Date();
+        return today.getFullYear(); // Devuelve 2025
+    });
 
     // Modo selección de fin de vacaciones
     const [vacationMode, setVacationMode] = useState<null | string>(null);
@@ -62,8 +68,18 @@ const CalendarPage: React.FC = () => {
         return thisDay > todayDateOnly;
     };
 
+    // En CalendarPage.tsx, al inicio del componente
+    console.log("🔄 CalendarPage montado:", {
+        user: user?.username,
+        month: currentMonth + 1,
+        year: currentYear,
+        tokenPresent: !!user?.token
+    });
+
     // Cargar usuarios (sin admin ni yo)
     useEffect(() => {
+        // En el useEffect de carga
+        console.log("📡 Solicitando eventos a:", `${API_BASE_URL}/calendar/events`);
         if (!user) return;
         fetch(`${API_BASE_URL}/calendar/users`, {
             headers: { Authorization: `Bearer ${user.token}` },
@@ -77,22 +93,44 @@ const CalendarPage: React.FC = () => {
     }, [user]);
 
     // Cargar eventos visibles y días de vacaciones restantes
+    // En CalendarPage.tsx, reemplaza TODO el useEffect de carga de eventos
+
     useEffect(() => {
-        if (!user) return;
-        Promise.all([
-            fetch(`${API_BASE_URL}/calendar/events`, {
-                headers: { Authorization: `Bearer ${user.token}` },
-            }).then((r) => r.json()),
-            fetch(`${API_BASE_URL}/calendar/vacation-days-left`, {
-                headers: { Authorization: `Bearer ${user.token}` },
-            }).then((r) => r.json()),
-        ])
-            .then(([evRes, vacRes]) => {
-                setEvents(evRes.events);
-                setVacationDaysLeft(vacRes.daysLeft);
-            })
-            .catch(() => alert("Error al cargar datos"));
-    }, [user, currentMonth, currentYear]);
+        if (!user?.token) return;
+
+        console.log("📅 Cargando calendario para usuario:", user.username);
+        console.log("📅 Mes actual:", currentMonth + 1, "/", currentYear);
+
+        const loadCalendarData = async () => {
+            try {
+                const [eventsRes, vacationRes] = await Promise.all([
+                    fetch(`${API_BASE_URL}/calendar/events`, {
+                        headers: { Authorization: `Bearer ${user.token}` },
+                    }),
+                    fetch(`${API_BASE_URL}/calendar/vacation-days-left`, {
+                        headers: { Authorization: `Bearer ${user.token}` },
+                    }),
+                ]);
+
+                if (!eventsRes.ok) throw new Error(`Error al cargar eventos: ${eventsRes.status}`);
+                if (!vacationRes.ok) throw new Error(`Error al cargar días de vacaciones: ${vacationRes.status}`);
+
+                const eventsData = await eventsRes.json();
+                const vacationData = await vacationRes.json();
+
+                console.log("✅ Eventos recibidos:", eventsData.events?.length || 0);
+                console.log("✅ Días de vacaciones disponibles:", vacationData.daysLeft);
+
+                setEvents(eventsData.events || []);
+                setVacationDaysLeft(vacationData.daysLeft);
+            } catch (error) {
+                console.error("❌ Error al cargar datos del calendario:", error);
+                alert("No se pudieron cargar los eventos del calendario. Por favor, intenta de nuevo.");
+            }
+        };
+
+        loadCalendarData();
+    }, [user?.token, user?.id]); // Solo depende del token e ID de usuario
 
     // Mes anterior / siguiente
     const handlePrevMonth = () => {
@@ -236,12 +274,6 @@ const CalendarPage: React.FC = () => {
     };
 
     // Borrar evento
-    // En CalendarPage.tsx, reemplaza la función handleDeleteEvent
-
-    // En CalendarPage.tsx, reemplaza la función handleDeleteEvent
-
-    // En CalendarPage.tsx, línea ~433, reemplaza handleDeleteEvent:
-
     const handleDeleteEvent = (ev: CalendarEvent) => {
         // Eliminamos localmente
         setEvents((prev) => prev.filter((e) => e.id !== ev.id));
@@ -421,7 +453,10 @@ const CalendarPage: React.FC = () => {
                     }}>
                         {monthDays.map((day) => {
                             const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                            const dayEvents = events.filter((e) => e.date === dateStr);
+                            const dayEvents = events.filter((e) => {
+                                // IMPORTANTE: Asegúrate de que e.date esté en formato YYYY-MM-DD
+                                return e.date === dateStr;
+                            });
                             const weekend = isWeekend(dateStr);
                             const future = isFutureDay(dateStr);
 
@@ -750,11 +785,7 @@ const CalendarPage: React.FC = () => {
         </div>
     );
 
-    // Enviar rango de vacaciones
-    // Enviar rango de vacaciones
     // Enviar rango de vacaciones sin problemas de zona horaria
-    // En CalendarPage.tsx, reemplaza la función createVacationRangeFromTo
-
     async function createVacationRangeFromTo(start: string, end: string) {
         // start y end vienen como 'YYYY-MM-DD'
         const [sy, sm, sd] = start.split("-").map(Number);
@@ -817,8 +848,8 @@ const CalendarPage: React.FC = () => {
             }
         }
 
-        // ✅ CAMBIO IMPORTANTE: Crear eventos de forma SECUENCIAL
         const newEvents: CalendarEvent[] = [];
+        let successCount = 0;
 
         for (const date of dates) {
             try {
@@ -839,27 +870,25 @@ const CalendarPage: React.FC = () => {
 
                 if (!response.ok) {
                     const error = await response.json();
-                    console.error(`Error creando vacación para ${date}:`, error);
-                    alert(`Error al crear vacación del ${date}: ${error.error || 'Error desconocido'}`);
-                    // Si falla una, detener el proceso
-                    break;
+                    console.error(`Error en ${date}:`, error.error);
+                    continue; // Continúa con el siguiente día
                 }
 
                 const event = await response.json();
                 newEvents.push(event);
+                successCount++;
 
             } catch (err) {
-                console.error(`Error de red creando vacación para ${date}:`, err);
-                alert(`Error de red al crear vacación del ${date}`);
-                break;
+                console.error(`Error de red en ${date}:`, err);
+                continue;
             }
         }
 
-        // Actualizar el estado solo con los eventos que se crearon exitosamente
+        // Actualiza el estado solo con los eventos creados exitosamente
         if (newEvents.length > 0) {
-            setEvents((prev) => [...prev, ...newEvents]);
-            setVacationDaysLeft((prev) => prev - newEvents.length);
-            alert(`Se crearon ${newEvents.length} días de vacaciones correctamente`);
+            setEvents(prev => [...prev, ...newEvents]);
+            setVacationDaysLeft(prev => prev - successCount);
+            alert(`✅ ${successCount} días de vacaciones creados`);
         }
     }
 

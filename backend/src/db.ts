@@ -70,10 +70,19 @@ export interface DbCalendarEvent {
   medical_file: string | null;
 }
 
+// ✅ FUNCIÓN CORREGIDA - getVisibleEventsForUser
 export async function getVisibleEventsForUser(userId: string): Promise<DbCalendarEvent[]> {
   const { rows } = await pool.query(
     `
-    SELECT *
+    SELECT 
+      id,
+      owner_id,
+      type,
+      date::text as date,  -- ⬅️ Asegura que date sea string YYYY-MM-DD
+      status,
+      visibility,
+      viewers,
+      medical_file
     FROM calendar_events
     WHERE
         visibility = 'all'
@@ -83,7 +92,29 @@ export async function getVisibleEventsForUser(userId: string): Promise<DbCalenda
     `,
     [userId]
   );
-  return rows;
+  return rows; // ⬅️ NO OLVIDES EL RETURN
+}
+
+// ✅ FUNCIÓN CORREGIDA - listEventsForUser
+export async function listEventsForUser(userId: string): Promise<DbCalendarEvent[]> {
+  const { rows } = await pool.query(
+    `
+    SELECT 
+      id,
+      owner_id,
+      type,
+      date::text as date,  -- ⬅️ Asegura que date sea string YYYY-MM-DD
+      status,
+      visibility,
+      viewers,
+      medical_file
+    FROM calendar_events
+    WHERE owner_id = $1
+    ORDER BY date ASC
+    `,
+    [userId]
+  );
+  return rows; // ⬅️ NO OLVIDES EL RETURN
 }
 
 export async function createCalendarEvent(input: {
@@ -116,19 +147,6 @@ export async function createCalendarEvent(input: {
   );
 
   return rows[0];
-}
-
-export async function listEventsForUser(userId: string): Promise<DbCalendarEvent[]> {
-  const { rows } = await pool.query(
-    `
-    SELECT *
-    FROM calendar_events
-    WHERE owner_id = $1
-    ORDER BY date ASC
-    `,
-    [userId]
-  );
-  return rows;
 }
 
 export async function updateEventStatus(id: string, status: 'approved' | 'pending' | null) {
