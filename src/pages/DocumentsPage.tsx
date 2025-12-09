@@ -1,3 +1,4 @@
+// DocumentsPage.tsx - VERSIÓN TRABAJADOR SOLO DESCARGA
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -15,16 +16,6 @@ const DocumentsPage: React.FC = () => {
   const [citations, setCitations] = useState<Citation[]>([]);
   const [contract, setContract] = useState<{ fileName: string } | null>(null);
   const [selectedMonth, setSelectedMonth] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [contractFile, setContractFile] = useState<File | null>(null);
-
-  const contractInputRef = React.useRef<HTMLInputElement>(null);
-
-  // Cargar documentos
-  useEffect(() => {
-    if (!user) return;
-    loadDocuments();
-  }, [user]);
 
   const loadDocuments = () => {
     if (!user?.token) return;
@@ -48,47 +39,9 @@ const DocumentsPage: React.FC = () => {
       .catch(() => alert("Error al cargar documentos"));
   };
 
-  const handleUploadContract = () => {
-    if (!contractFile || !user?.token) {
-      alert("Por favor, selecciona un archivo");
-      return;
-    }
-
-    setUploading(true);
-    const form = new FormData();
-    form.append("file", contractFile);
-    // Para trabajadores, el ownerId es su propio ID
-    form.append("ownerId", user.id);
-
-    console.log("📡 Trabajador subiendo contrato:", {
-      ownerId: user.id,
-      fileName: contractFile.name,
-    });
-
-    fetch(`${API_BASE_URL}/documents/contract`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${user.token}` },
-      body: form,
-    })
-      .then(async (r) => {
-        if (!r.ok) {
-          const error = await r.json();
-          throw new Error(error.error || "Error al subir contrato");
-        }
-        return r.json();
-      })
-      .then(() => {
-        alert("✅ Contrato subido correctamente");
-        setContractFile(null);
-        if (contractInputRef.current) contractInputRef.current.value = "";
-        loadDocuments(); // Recargar documentos
-      })
-      .catch((err) => {
-        console.error("❌ Error al subir contrato:", err);
-        alert(`Error: ${err.message}`);
-      })
-      .finally(() => setUploading(false));
-  };
+  useEffect(() => {
+    loadDocuments();
+  }, [user]);
 
   const monthLabel = (m: string) => {
     const [y, mm] = m.split("-");
@@ -125,9 +78,10 @@ const DocumentsPage: React.FC = () => {
       .catch(() => alert("Error al descargar"));
   };
 
+  if (!user) return null;
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#f3f4f6" }}>
-      {/* Header */}
       <header
         style={{
           backgroundColor: "#ffffff",
@@ -141,7 +95,7 @@ const DocumentsPage: React.FC = () => {
         <div>
           <div style={{ fontSize: "1rem", fontWeight: 600 }}>Mis Documentos</div>
           <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-            Usuario: <strong>{user?.username}</strong> ({user?.fullName})
+            Usuario: <strong>{user.username}</strong> ({user.fullName})
           </div>
         </div>
         <button
@@ -239,35 +193,9 @@ const DocumentsPage: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div>
-              <p style={{ color: "#6b7280", marginBottom: "1rem" }}>
-                No tienes contrato subido. Puedes subirlo aquí:
-              </p>
-              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <input
-                  ref={contractInputRef}
-                  type="file"
-                  accept=".pdf"
-                  onChange={(e) => setContractFile(e.target.files?.[0] || null)}
-                  style={{ flex: 1 }}
-                />
-                <button
-                  onClick={handleUploadContract}
-                  disabled={!contractFile || uploading}
-                  style={{
-                    padding: "0.4rem 0.8rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #059669",
-                    backgroundColor: "#059669",
-                    color: "#fff",
-                    cursor: uploading ? "not-allowed" : "pointer",
-                    opacity: uploading ? 0.6 : 1,
-                  }}
-                >
-                  {uploading ? "Subiendo..." : "Subir contrato"}
-                </button>
-              </div>
-            </div>
+            <p style={{ margin: 0, fontSize: "0.9rem", color: "#6b7280" }}>
+              No hay contrato disponible. Contacta con administración.
+            </p>
           )}
         </section>
 
