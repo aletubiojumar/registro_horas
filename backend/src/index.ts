@@ -4,7 +4,6 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 import multer from "multer";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import {
-  pool,
   dbListUsers,
   dbCreateDemoUser,
   DbUser,
@@ -19,7 +18,6 @@ import {
   comparePassword,
   getMonthHoursForUser,
   upsertMonthHoursForUser,
-  DbMonthHoursForApi,
   updateEventStatus,
   getVisibleEventsForUser,
   countApprovedVacationsForUser,
@@ -39,7 +37,6 @@ import {
   deleteCitationRecord,
   getCalendarEventById,
   deleteCalendarEventById,
-  countAllVacationsForUser
 } from "./db";
 
 // -------------------------

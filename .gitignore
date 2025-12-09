@@ -54,3 +54,6 @@ coverage/
 .tmp/
 .cache/
 .temp/
+
+# --- AWS ---
+*.zip

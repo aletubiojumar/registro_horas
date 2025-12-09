@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -6,7 +6,6 @@ import DayRow from "../components/DayRow";
 import type { DayHours } from "../components/DayRow";
 import SignatureModal from "../components/SignatureModal";
 import VacationModal from "../components/VacationModal";
-import ProfilePage from "./ProfilePage";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
@@ -287,9 +286,7 @@ const HoursPage = () => {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Ficheros de justificante médico por día (solo en front por ahora)
-  const [medicalFiles, setMedicalFiles] = useState<Record<number, File | null>>(
-    {}
-  );
+  const [, setMedicalFiles] = useState<Record<number, File | null>>({});
 
   // Modal de vacaciones y días seleccionados
   const [isVacationModalOpen, setIsVacationModalOpen] = useState(false);
@@ -661,12 +658,7 @@ const HoursPage = () => {
 
     await downloadPdfForCurrentMonth();
   };
-
-  const handleLogout = () => {
-    logout();
-    navigate("/login");
-  };
-
+  
   const handleSignatureSaved = (dataUrl: string) => {
     setSignatureDataUrl(dataUrl);
     setHasUnsavedChanges(true);

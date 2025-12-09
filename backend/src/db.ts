@@ -2,15 +2,64 @@ import { Pool } from "pg";
 import bcrypt from "bcryptjs";
 
 // ==============================
-// Conexión a Postgres
+// Conexión a Postgres usando Secrets Manager
 // ==============================
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  "postgres://appuser:app_password@localhost:5432/registro_horas";
+function createPoolFromSecret(): Pool {
+  const secretJson = process.env.DB_SECRET_JSON;
+  if (!secretJson) {
+    throw new Error("DB_SECRET_JSON env var is not set");
+  }
 
-export const pool = new Pool({
-  connectionString: DATABASE_URL,
-});
+  let secret: any;
+  try {
+    // EB pone aquí el JSON que viene del Secret de RDS
+    // { "username": "...", "password": "...", "host": "...", "port": 5432, "dbname": "..." }
+    secret = JSON.parse(secretJson);
+  } catch (err) {
+    throw new Error(
+      "Failed to parse DB_SECRET_JSON: " + (err as Error).message
+    );
+  }
+
+  const user = secret.username;
+  const password = secret.password;
+  const host = secret.host;
+  const port = Number(secret.port ?? 5432);
+  const database = secret.dbname ?? process.env.DB_NAME ?? "registro_horas";
+
+  if (!user || !password || !host) {
+    throw new Error(
+      "Missing database connection fields in DB secret (need username, password, host)"
+    );
+  }
+
+  return new Pool({
+    host,
+    port,
+    user,
+    password,
+    database,
+    // descomenta si activas SSL en RDS:
+    // ssl: { rejectUnauthorized: false },
+  });
+}
+
+export const pool = createPoolFromSecret();
+
+// // ==============================
+// // Conexión a Postgres
+// // ==============================
+
+// import { Pool } from "pg";
+// import bcrypt from "bcryptjs";
+
+// const DATABASE_URL =
+//   process.env.DATABASE_URL ||
+//   "postgres://appuser:app_password@localhost:5432/registro_horas";
+
+// export const pool = new Pool({
+//   connectionString: DATABASE_URL,
+// });
 
 // ==============================
 // Tipos

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import type { CalendarEvent } from "../pages/CalendarPage";
 
 const colorByType: Record<any, string> = {

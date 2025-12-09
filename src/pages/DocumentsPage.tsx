@@ -1,5 +1,4 @@
-// DocumentsPage.tsx - VERSIÓN TRABAJADOR SOLO DESCARGA
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
 
