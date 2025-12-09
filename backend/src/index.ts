@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import jwt, { JwtPayload } from "jsonwebtoken";
+import multer from "multer";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import {
   pool,
@@ -112,6 +113,7 @@ interface ContractDoc {
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-demo";
+const upload = multer({ storage: multer.memoryStorage() });
 
 // -------------------------
 // Extender Request con user
@@ -1058,19 +1060,64 @@ app.get(
   }
 );
 
-/* 3. Contrato del usuario */
-app.get("/api/documents/contract", authMiddleware, async (req: AuthRequest, res) => {
+// ==============================
+// DOCUMENTOS: Endpoints para TRABAJADORES
+// ==============================
+
+// ✅ NUEVO: Trabajador sube su propio contrato
+app.post(
+  "/api/documents/contract",
+  authMiddleware,
+  upload.single("file"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const ownerId = req.user!.userId;
+      const file = req.file;
+
+      if (!file) {
+        return res.status(400).json({ error: "Falta archivo" });
+      }
+
+      const newDoc = await upsertContractRecord({
+        ownerId,
+        fileName: file.originalname,
+      });
+
+      res.json({ ok: true, ownerId: newDoc.owner_id, fileName: newDoc.file_name });
+    } catch (err) {
+      console.error("❌ Error trabajador upload contract:", err);
+      res.status(500).json({ error: "Error interno al subir contrato" });
+    }
+  }
+);
+
+// ✅ NUEVO: Trabajador elimina su contrato
+app.delete(
+  "/api/documents/contract",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      await deleteContractRecord(req.user!.userId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error deleting contract:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// ✅ Trabajador obtiene su contrato
+app.get("/api/documents/contract", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const c = await getContractForOwner(req.user!.userId);
-    if (!c) return res.json({ contract: null });
-    res.json({ contract: { fileName: c.file_name } });
+    const contract = await getContractForOwner(req.user!.userId);
+    res.json({ contract });
   } catch (err) {
-    console.error("Error /documents/contract:", err);
+    console.error("Error getting contract:", err);
     res.status(500).json({ error: "Error interno" });
   }
 });
 
-/* 4. Descarga del contrato */
+// ✅ Trabajador descarga contrato
 app.get(
   "/api/documents/contract/download",
   authMiddleware,
@@ -1079,21 +1126,139 @@ app.get(
       const c = await getContractForOwner(req.user!.userId);
       if (!c) return res.status(404).json({ error: "Contrato no encontrado" });
 
-      const fakeBuffer = Buffer.from(
-        `CONTRATO DE TRABAJO\nFichero: ${c.file_name}\n`
-      );
+      const fakeBuffer = Buffer.from(`CONTRATO DE TRABAJO\nFichero: ${c.file_name}\n`);
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${c.file_name}"`
-      );
+      res.setHeader("Content-Disposition", `attachment; filename="${c.file_name}"`);
       res.send(fakeBuffer);
     } catch (err) {
-      console.error("Error /documents/contract/download:", err);
+      console.error("Error downloading contract:", err);
       res.status(500).json({ error: "Error interno" });
     }
   }
 );
+
+// ✅ Listado de citaciones del trabajador
+app.get("/api/documents/citations", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const list = await listCitationsForUser(req.user!.userId);
+    res.json({
+      citations: list.map((c) => ({
+        id: c.id,
+        ownerId: c.owner_id,
+        title: c.title,
+        issuedAt: c.issued_at,
+        fileName: c.file_name,
+      })),
+    });
+  } catch (err) {
+    console.error("Error /documents/citations:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// ✅ Descarga de una citación
+app.get(
+  "/api/documents/citations/:id/download",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cit = await getCitationById(req.params.id);
+      if (!cit || cit.owner_id !== req.user!.userId) {
+        return res.status(404).json({ error: "Citación no encontrada" });
+      }
+
+      const fakeBuffer = Buffer.from(`CITACIÓN: ${cit.title}\nFecha: ${cit.issued_at}\nFichero: ${cit.file_name}\n`);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${cit.file_name}"`);
+      res.send(fakeBuffer);
+    } catch (err) {
+      console.error("Error /documents/citations/:id/download:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// ==============================
+// ADMIN: Endpoints para ADMINISTRADORES
+// ==============================
+
+// ✅ Admin sube contrato para un trabajador
+app.post(
+  "/api/admin/documents/contract",
+  authMiddleware,
+  adminOnlyMiddleware,
+  upload.single("file"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const ownerId = req.body.ownerId;
+      const file = req.file;
+
+      if (!file) {
+        return res.status(400).json({ error: "Falta archivo" });
+      }
+
+      if (!ownerId) {
+        return res.status(400).json({ error: "Falta ownerId del trabajador" });
+      }
+
+      const newDoc = await upsertContractRecord({
+        ownerId,
+        fileName: file.originalname,
+      });
+
+      res.json({ ok: true, ownerId: newDoc.owner_id, fileName: newDoc.file_name });
+    } catch (err) {
+      console.error("❌ Error admin upload contract:", err);
+      res.status(500).json({ error: "Error interno al subir contrato" });
+    }
+  }
+);
+
+// ✅ Admin obtiene contrato de un trabajador
+app.get(
+  "/api/admin/documents/contract",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const ownerId = req.query.userId as string;
+      if (!ownerId) {
+        return res.status(400).json({ error: "Falta userId del trabajador" });
+      }
+
+      const contract = await getContractForOwner(ownerId);
+      res.json({ contract });
+    } catch (err) {
+      console.error("Error admin get contract:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// ✅ Admin elimina contrato de un trabajador
+app.delete(
+  "/api/admin/documents/contract",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const ownerId = req.query.userId as string;
+      if (!ownerId) {
+        return res.status(400).json({ error: "Falta userId del trabajador" });
+      }
+
+      await deleteContractRecord(ownerId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error admin delete contract:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// ==============================
+// ADMIN: Endpoints para ADMINISTRADORES
+// ==============================
 
 /* 5. Listado de citaciones */
 app.get("/api/documents/citations", authMiddleware, async (req: AuthRequest, res) => {
@@ -1510,9 +1675,6 @@ app.post("/api/debug/db-users/demo", async (req, res) => {
 });
 
 // ====== ADMIN: DOCUMENTOS (YA EN BD, PDFs SIMULADOS) ======
-
-const multer = require("multer");
-const upload = multer({ storage: multer.memoryStorage() });
 
 // Nómina
 app.get(
