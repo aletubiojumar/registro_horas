@@ -35,6 +35,145 @@ export interface DbUser {
   updated_at: Date;
 }
 
+// ---- Tipos para horas ----
+export interface DbDayForHours {
+  day: number;
+  morningIn?: string;
+  morningOut?: string;
+  afternoonIn?: string;
+  afternoonOut?: string;
+  totalMinutes: number;
+  absenceType: string;
+  hasSignature: boolean;
+}
+
+export interface DbMonthHoursForApi {
+  userId: string;
+  year: number;
+  month: number;
+  signatureDataUrl: string | null;
+  days: DbDayForHours[];
+}
+
+// ==============================
+// CALENDARIO EN BD
+// ==============================
+
+export interface DbCalendarEvent {
+  id: string;
+  owner_id: string;
+  type: string;
+  date: string;
+  status: string | null;
+  visibility: string;
+  viewers: string[] | null;
+  medical_file: string | null;
+}
+
+export async function getVisibleEventsForUser(userId: string): Promise<DbCalendarEvent[]> {
+  const { rows } = await pool.query(
+    `
+    SELECT *
+    FROM calendar_events
+    WHERE
+        visibility = 'all'
+        OR (visibility = 'only-me' AND owner_id = $1)
+        OR (visibility = 'some' AND $1 = ANY(viewers))
+    ORDER BY date ASC
+    `,
+    [userId]
+  );
+  return rows;
+}
+
+export async function createCalendarEvent(input: {
+  ownerId: string;
+  type: string;
+  date: string;
+  visibility: string;
+  viewers?: string[];
+  status?: string | null;
+  medicalFile?: string | null;
+}): Promise<DbCalendarEvent> {
+  const { rows } = await pool.query(
+    `
+    INSERT INTO calendar_events (
+        owner_id, type, date, visibility, viewers, status, medical_file
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7)
+    RETURNING id, owner_id, type, date::text as date, status, visibility, viewers, medical_file
+    `,
+    //                            ^^^^^^^^^^^^^^^^^^^ IMPORTANTE: debe tener ::text
+    [
+      input.ownerId,
+      input.type,
+      input.date,
+      input.visibility,
+      input.viewers ?? null,
+      input.status ?? null,
+      input.medicalFile ?? null,
+    ]
+  );
+
+  return rows[0];
+}
+
+export async function listEventsForUser(userId: string): Promise<DbCalendarEvent[]> {
+  const { rows } = await pool.query(
+    `
+    SELECT *
+    FROM calendar_events
+    WHERE owner_id = $1
+    ORDER BY date ASC
+    `,
+    [userId]
+  );
+  return rows;
+}
+
+export async function updateEventStatus(id: string, status: 'approved' | 'pending' | null) {
+  await pool.query(
+    `
+    UPDATE calendar_events
+    SET status = $1, updated_at = NOW()
+    WHERE id = $2
+    `,
+    [status, id]
+  );
+}
+
+export async function doesUserHaveVacationOnDate(
+  userId: string,
+  date: string
+): Promise<boolean> {
+  const { rows } = await pool.query(
+    `
+    SELECT 1
+    FROM calendar_events
+    WHERE owner_id = $1 AND date = $2 AND type = 'vacaciones'
+    LIMIT 1
+    `,
+    [userId, date]
+  );
+  return rows.length > 0;
+}
+
+export async function deleteVacationById(id: string) {
+  await pool.query(`DELETE FROM calendar_events WHERE id = $1`, [id]);
+}
+
+export async function countApprovedVacationsForUser(userId: string): Promise<number> {
+  const { rows } = await pool.query(
+    `
+    SELECT COUNT(*)::int AS total
+    FROM calendar_events
+    WHERE owner_id = $1 AND type = 'vacaciones' AND status = 'approved'
+    `,
+    [userId]
+  );
+  return rows[0]?.total ?? 0;
+}
+
 // ==============================
 // Helpers de contraseña
 // ==============================
@@ -267,9 +406,8 @@ export async function countActiveAdmins(excludeId?: string): Promise<number> {
 }
 
 // ==============================
-// Helpers de debug (los que usábamos antes)
+// DEBUG helpers (opcional)
 // ==============================
-
 export async function dbListUsers(): Promise<DbUser[]> {
   return listUsers();
 }
@@ -283,3 +421,380 @@ export async function dbCreateDemoUser(): Promise<DbUser> {
     vacation_days_per_year: 23,
   });
 }
+
+// ==============================
+// HORAS: lectura/escritura en BD
+// ==============================
+
+function mapTimeToHHMM(value: string | null): string | undefined {
+  if (!value) return undefined;
+  // pg suele devolver "HH:MM:SS" → nos quedamos con "HH:MM"
+  return value.slice(0, 5);
+}
+
+// Leer horas de un usuario para un mes
+export async function getMonthHoursForUser(
+  userId: string,
+  year: number,
+  month: number
+): Promise<DbMonthHoursForApi | null> {
+  const { rows: monthRows } = await pool.query(
+    `
+    SELECT id, signature_data_url
+    FROM hours_months
+    WHERE user_id = $1 AND year = $2 AND month = $3
+    LIMIT 1
+    `,
+    [userId, year, month]
+  );
+
+  if (!monthRows[0]) return null;
+
+  const monthId: string = monthRows[0].id;
+  const signatureDataUrl: string | null = monthRows[0].signature_data_url;
+
+  const { rows: dayRows } = await pool.query(
+    `
+    SELECT
+      day,
+      morning_in,
+      morning_out,
+      afternoon_in,
+      afternoon_out,
+      total_minutes,
+      absence_type,
+      has_signature
+    FROM hours_days
+    WHERE month_id = $1
+    ORDER BY day ASC
+    `,
+    [monthId]
+  );
+
+  const days: DbDayForHours[] = dayRows.map((r: any) => ({
+    day: Number(r.day),
+    morningIn: mapTimeToHHMM(r.morning_in),
+    morningOut: mapTimeToHHMM(r.morning_out),
+    afternoonIn: mapTimeToHHMM(r.afternoon_in),
+    afternoonOut: mapTimeToHHMM(r.afternoon_out),
+    totalMinutes: Number(r.total_minutes ?? 0),
+    absenceType: String(r.absence_type ?? "none"),
+    hasSignature: Boolean(r.has_signature),
+  }));
+
+  return {
+    userId,
+    year,
+    month,
+    signatureDataUrl,
+    days,
+  };
+}
+
+// Datos que esperamos recibir ya calculados desde el endpoint
+export interface UpsertDayInput {
+  day: number;
+  morningIn?: string;
+  morningOut?: string;
+  afternoonIn?: string;
+  afternoonOut?: string;
+  totalMinutes: number;
+  absenceType: string;
+  hasSignature: boolean;
+}
+
+// Guardar/actualizar horas de un usuario para un mes
+export async function upsertMonthHoursForUser(
+  userId: string,
+  year: number,
+  month: number,
+  signatureDataUrl: string | null,
+  days: UpsertDayInput[]
+): Promise<void> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Buscar si ya existe el mes
+    const { rows: monthRows } = await client.query(
+      `
+      SELECT id
+      FROM hours_months
+      WHERE user_id = $1 AND year = $2 AND month = $3
+      LIMIT 1
+      `,
+      [userId, year, month]
+    );
+
+    let monthId: string;
+
+    if (monthRows[0]) {
+      monthId = monthRows[0].id;
+      await client.query(
+        `
+        UPDATE hours_months
+        SET signature_data_url = $1, updated_at = NOW()
+        WHERE id = $2
+        `,
+        [signatureDataUrl, monthId]
+      );
+
+      // Borramos los días anteriores y los volvemos a insertar
+      await client.query(`DELETE FROM hours_days WHERE month_id = $1`, [
+        monthId,
+      ]);
+    } else {
+      const { rows: inserted } = await client.query(
+        `
+        INSERT INTO hours_months (user_id, year, month, signature_data_url)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+        `,
+        [userId, year, month, signatureDataUrl]
+      );
+      monthId = inserted[0].id;
+    }
+
+    // Insertar días
+    for (const d of days) {
+      await client.query(
+        `
+        INSERT INTO hours_days (
+          month_id,
+          day,
+          morning_in,
+          morning_out,
+          afternoon_in,
+          afternoon_out,
+          total_minutes,
+          absence_type,
+          has_signature
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        `,
+        [
+          monthId,
+          d.day,
+          d.morningIn ?? null,
+          d.morningOut ?? null,
+          d.afternoonIn ?? null,
+          d.afternoonOut ?? null,
+          d.totalMinutes,
+          d.absenceType,
+          d.hasSignature,
+        ]
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ==============================
+// DOCUMENTOS EN BD
+// ==============================
+
+export interface DbPayroll {
+  id: string;
+  owner_id: string;
+  year: number;
+  month: string;
+  file_name: string;
+  created_at: Date;
+}
+
+export interface DbContract {
+  id: string;
+  owner_id: string;
+  file_name: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface DbCitation {
+  id: string;
+  owner_id: string;
+  title: string;
+  issued_at: string;
+  file_name: string;
+  created_at: Date;
+}
+
+// ---- NÓMINAS ----
+
+export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]> {
+  const { rows } = await pool.query<DbPayroll>(
+    `
+    SELECT *
+    FROM payrolls
+    WHERE owner_id = $1
+    ORDER BY year DESC, month DESC, created_at DESC
+    `,
+    [ownerId]
+  );
+  return rows;
+}
+
+export async function createPayrollRecord(params: {
+  ownerId: string;
+  year: number;
+  month: string; // "01".."12"
+  fileName: string;
+}): Promise<DbPayroll> {
+  const { rows } = await pool.query<DbPayroll>(
+    `
+    INSERT INTO payrolls (owner_id, year, month, file_name)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
+    `,
+    [params.ownerId, params.year, params.month, params.fileName]
+  );
+  return rows[0];
+}
+
+export async function getPayrollById(id: string): Promise<DbPayroll | null> {
+  const { rows } = await pool.query<DbPayroll>(
+    `
+    SELECT *
+    FROM payrolls
+    WHERE id = $1
+    LIMIT 1
+    `,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+export async function deletePayrollRecord(id: string): Promise<void> {
+  await pool.query(`DELETE FROM payrolls WHERE id = $1`, [id]);
+}
+
+// ---- CONTRATOS ----
+
+export async function getContractForOwner(ownerId: string): Promise<DbContract | null> {
+  const { rows } = await pool.query<DbContract>(
+    `
+    SELECT *
+    FROM contracts
+    WHERE owner_id = $1
+    LIMIT 1
+    `,
+    [ownerId]
+  );
+  return rows[0] || null;
+}
+
+export async function upsertContractRecord(params: {
+  ownerId: string;
+  fileName: string;
+}): Promise<DbContract> {
+  const { rows } = await pool.query<DbContract>(
+    `
+    INSERT INTO contracts (owner_id, file_name)
+    VALUES ($1, $2)
+    ON CONFLICT (owner_id)
+    DO UPDATE SET
+      file_name = EXCLUDED.file_name,
+      updated_at = NOW()
+    RETURNING *
+    `,
+    [params.ownerId, params.fileName]
+  );
+  return rows[0];
+}
+
+export async function deleteContractRecord(ownerId: string): Promise<void> {
+  await pool.query(`DELETE FROM contracts WHERE owner_id = $1`, [ownerId]);
+}
+
+// ---- CITACIONES ----
+
+export async function listCitationsForUser(ownerId: string): Promise<DbCitation[]> {
+  const { rows } = await pool.query<DbCitation>(
+    `
+    SELECT *
+    FROM citations
+    WHERE owner_id = $1
+    ORDER BY issued_at DESC, created_at DESC
+    `,
+    [ownerId]
+  );
+  return rows;
+}
+
+export async function createCitationRecord(params: {
+  ownerId: string;
+  title: string;
+  issuedAt: string; // "YYYY-MM-DD"
+  fileName: string;
+}): Promise<DbCitation> {
+  const { rows } = await pool.query<DbCitation>(
+    `
+    INSERT INTO citations (owner_id, title, issued_at, file_name)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
+    `,
+    [params.ownerId, params.title, params.issuedAt, params.fileName]
+  );
+  return rows[0];
+}
+
+export async function getCitationById(id: string): Promise<DbCitation | null> {
+  const { rows } = await pool.query<DbCitation>(
+    `
+    SELECT *
+    FROM citations
+    WHERE id = $1
+    LIMIT 1
+    `,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+export async function deleteCitationRecord(id: string): Promise<void> {
+  await pool.query(`DELETE FROM citations WHERE id = $1`, [id]);
+}
+
+export async function getCalendarEventById(id: string): Promise<DbCalendarEvent | null> {
+  const { rows } = await pool.query<DbCalendarEvent>(
+    `
+    SELECT *
+    FROM calendar_events
+    WHERE id = $1
+    LIMIT 1
+    `,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+export async function deleteCalendarEventById(id: string): Promise<void> {
+  await pool.query(
+    `
+    DELETE FROM calendar_events
+    WHERE id = $1
+    `,
+    [id]
+  );
+}
+
+export async function countAllVacationsForUser(userId: string): Promise<number> {
+  const { rows } = await pool.query(
+    `
+    SELECT COUNT(*)::int AS total
+    FROM calendar_events
+    WHERE owner_id = $1 AND type = 'vacaciones'
+    `,
+    [userId]
+  );
+  return rows[0]?.total ?? 0;
+}
+
+

@@ -2,7 +2,6 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import multer from "multer";
 import {
   pool,
   dbListUsers,
@@ -17,6 +16,29 @@ import {
   deleteUser as dbDeleteUser,
   countActiveAdmins,
   comparePassword,
+  getMonthHoursForUser,
+  upsertMonthHoursForUser,
+  DbMonthHoursForApi,
+  updateEventStatus,
+  getVisibleEventsForUser,
+  countApprovedVacationsForUser,
+  doesUserHaveVacationOnDate,
+  createCalendarEvent,
+  listEventsForUser,
+  listPayrollsForUser,
+  createPayrollRecord,
+  getPayrollById,
+  deletePayrollRecord,
+  getContractForOwner,
+  upsertContractRecord,
+  deleteContractRecord,
+  listCitationsForUser,
+  createCitationRecord,
+  getCitationById,
+  deleteCitationRecord,
+  getCalendarEventById,
+  deleteCalendarEventById,
+  countAllVacationsForUser
 } from "./db";
 
 // -------------------------
@@ -54,8 +76,6 @@ interface StoredDay {
   hasSignature?: boolean;
 }
 
-const hoursStore: MonthHours[] = [];
-
 interface MonthHours {
   userId: string;
   year: number;
@@ -91,20 +111,7 @@ interface ContractDoc {
   fileName: string;
 }
 
-const payrollsDb: Payroll[] = [];
-const citationsDb: Citation[] = [];
-const contractDb: ContractDoc[] = [];
-
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-demo";
-
-const findMonthHours = (
-  userId: string,
-  year: number,
-  month: number
-): MonthHours | undefined =>
-  hoursStore.find(
-    (h) => h.userId === userId && h.year === year && h.month === month
-  );
 
 // -------------------------
 // Extender Request con user
@@ -113,6 +120,33 @@ const findMonthHours = (
 interface AuthRequest extends Request {
   user?: CustomJwtPayload;
 }
+
+// Ahora findMonthHours consulta la BD
+const findMonthHours = async (
+  userId: string,
+  year: number,
+  month: number
+): Promise<MonthHours | undefined> => {
+  const dbData = await getMonthHoursForUser(userId, year, month);
+  if (!dbData) return undefined;
+
+  return {
+    userId: dbData.userId,
+    year: dbData.year,
+    month: dbData.month,
+    signatureDataUrl: dbData.signatureDataUrl,
+    days: dbData.days.map((d) => ({
+      day: d.day,
+      morningIn: d.morningIn,
+      morningOut: d.morningOut,
+      afternoonIn: d.afternoonIn,
+      afternoonOut: d.afternoonOut,
+      totalMinutes: d.totalMinutes,
+      absenceType: d.absenceType as AbsenceType,
+      hasSignature: d.hasSignature,
+    })),
+  };
+};
 
 // -------------------------
 // Middlewares
@@ -248,75 +282,109 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
 // Endpoints worker: horas
 // -------------------------
 
-app.get("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
-  const userId = req.user!.userId;
-  const year = Number(req.query.year);
-  const month = Number(req.query.month);
+app.get(
+  "/api/hours",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.userId;
+    const year = Number(req.query.year);
+    const month = Number(req.query.month);
 
-  if (!year || !month) {
-    res.status(400).json({ error: "Parámetros year y month son obligatorios" });
-    return;
+    if (!year || !month) {
+      res
+        .status(400)
+        .json({ error: "Parámetros year y month son obligatorios" });
+      return;
+    }
+
+    try {
+      const data = await findMonthHours(userId, year, month);
+      if (!data) {
+        res.json({ exists: false, data: null });
+        return;
+      }
+
+      res.json({ exists: true, data });
+    } catch (err) {
+      console.error("Error en GET /api/hours:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
   }
+);
 
-  const data = findMonthHours(userId, year, month);
-  if (!data) {
-    res.json({ exists: false, data: null });
-    return;
-  }
 
-  res.json({ exists: true, data });
-});
-
-app.put("/api/hours", authMiddleware, (req: AuthRequest, res: Response) => {
-  const userId = req.user!.userId;
-  const { year, month, days, signatureDataUrl } = req.body as {
-    year: number;
-    month: number;
-    days: StoredDay[];
-    signatureDataUrl?: string | null;
-  };
-
-  if (!year || !month || !Array.isArray(days)) {
-    res.status(400).json({ error: "year, month y days son obligatorios" });
-    return;
-  }
-
-  const computeMinutes = (start?: string, end?: string): number => {
-    if (!start || !end) return 0;
-    const [sh, sm] = start.split(":").map(Number);
-    const [eh, em] = end.split(":").map(Number);
-    const startMin = sh * 60 + sm;
-    const endMin = eh * 60 + em;
-    return Math.max(endMin - startMin, 0);
-  };
-
-  let entry = findMonthHours(userId, year, month);
-  if (!entry) {
-    entry = { userId, year, month, days: [], signatureDataUrl: null };
-    hoursStore.push(entry);
-  }
-
-  entry.days = days.map((d) => {
-    const absence: AbsenceType = (d.absenceType as AbsenceType) ?? "none";
-
-    const morningMinutes = computeMinutes(d.morningIn, d.morningOut);
-    const afternoonMinutes = computeMinutes(d.afternoonIn, d.afternoonOut);
-
-    const totalMinutes =
-      absence !== "none" ? 0 : morningMinutes + afternoonMinutes;
-
-    return {
-      ...d,
-      absenceType: absence,
-      totalMinutes,
-      hasSignature: !!signatureDataUrl,
+app.put(
+  "/api/hours",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.userId;
+    const { year, month, days, signatureDataUrl } = req.body as {
+      year: number;
+      month: number;
+      days: StoredDay[];
+      signatureDataUrl?: string | null;
     };
-  });
 
-  entry.signatureDataUrl = signatureDataUrl ?? null;
+    if (!year || !month || !Array.isArray(days)) {
+      res
+        .status(400)
+        .json({ error: "year, month y days son obligatorios" });
+      return;
+    }
 
-  res.json({ ok: true });
-});
+    const computeMinutes = (start?: string, end?: string): number => {
+      if (!start || !end) return 0;
+      const [sh, sm] = start.split(":").map(Number);
+      const [eh, em] = end.split(":").map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin = eh * 60 + em;
+      return Math.max(endMin - startMin, 0);
+    };
+
+    // Calculamos los datos igual que antes, pero ya pensando en la BD
+    const processed = days.map((d: StoredDay) => {
+      const absence: AbsenceType = d.absenceType ?? "none";
+
+      const morningMinutes = computeMinutes(d.morningIn, d.morningOut);
+      const afternoonMinutes = computeMinutes(d.afternoonIn, d.afternoonOut);
+
+      const totalMinutes =
+        absence !== "none" ? 0 : morningMinutes + afternoonMinutes;
+
+      return {
+        ...d,
+        absenceType: absence,
+        totalMinutes,
+        hasSignature: !!signatureDataUrl,
+      };
+    });
+
+    try {
+      await upsertMonthHoursForUser(
+        userId,
+        year,
+        month,
+        signatureDataUrl ?? null,
+        processed.map((d) => ({
+          day: d.day,
+          morningIn: d.morningIn,
+          morningOut: d.morningOut,
+          afternoonIn: d.afternoonIn,
+          afternoonOut: d.afternoonOut,
+          totalMinutes: d.totalMinutes ?? 0,
+          absenceType: d.absenceType ?? "none",
+          hasSignature: d.hasSignature ?? false,
+        }))
+      );
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error en PUT /api/hours:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
+
 
 // -------------------------
 // Generación de PDF
@@ -489,35 +557,51 @@ app.get(
     const month = Number(req.query.month);
 
     if (!year || !month) {
-      res
+      return res
         .status(400)
         .json({ error: "Parámetros year y month son obligatorios" });
-      return;
     }
 
-    const monthData = findMonthHours(userId, year, month);
-    if (!monthData) {
-      res.status(404).json({ error: "No hay datos de horas para ese mes." });
-      return;
+    try {
+      const monthData = await findMonthHours(userId, year, month);
+      if (!monthData) {
+        return res
+          .status(404)
+          .json({ error: "No hay datos de horas para ese mes." });
+      }
+
+      const dbUser = await getUserById(userId);
+      if (!dbUser) {
+        return res.status(404).json({ error: "Usuario no encontrado" });
+      }
+
+      // Adaptamos DbUser → objeto que espera createPdfForMonth
+      const pdfUser = {
+        workCenter: dbUser.work_center || "",
+        companyCif: dbUser.company_cif || "",
+        companyCcc: dbUser.company_ccc || "",
+        workerLastName: dbUser.worker_last_name || "",
+        workerFirstName: dbUser.worker_first_name || "",
+        workerNif: dbUser.worker_nif || "",
+        workerSsNumber: dbUser.worker_ss_number || "",
+        username: dbUser.username,
+      };
+
+      const pdfBytes = await createPdfForMonth(monthData, pdfUser as any);
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="registro_horas_${year}_${String(month).padStart(
+          2,
+          "0"
+        )}_${dbUser.username}.pdf"`
+      );
+      res.send(Buffer.from(pdfBytes));
+    } catch (err) {
+      console.error("Error en GET /api/hours/pdf:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
     }
-
-    const user = await getUserById(userId);
-    if (!user) {
-      res.status(404).json({ error: "Usuario no encontrado" });
-      return;
-    }
-
-    const pdfBytes = await createPdfForMonth(monthData, user);
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="registro_horas_${year}_${String(month).padStart(
-        2,
-        "0"
-      )}_${user.username}.pdf"`
-    );
-    res.send(Buffer.from(pdfBytes));
   }
 );
 
@@ -529,7 +613,7 @@ app.get(
   "/api/admin/hours",
   authMiddleware,
   adminOnlyMiddleware,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const userId = String(req.query.userId);
     const year = Number(req.query.year);
     const month = Number(req.query.month);
@@ -541,13 +625,18 @@ app.get(
       return;
     }
 
-    const monthData = findMonthHours(userId, year, month);
-    if (!monthData) {
-      res.json({ exists: false, data: null });
-      return;
-    }
+    try {
+      const monthData = await findMonthHours(userId, year, month);
+      if (!monthData) {
+        res.json({ exists: false, data: null });
+        return;
+      }
 
-    res.json({ exists: true, data: monthData });
+      res.json({ exists: true, data: monthData });
+    } catch (err) {
+      console.error("Error en GET /api/admin/hours:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
+    }
   }
 );
 
@@ -561,35 +650,50 @@ app.get(
     const month = Number(req.query.month);
 
     if (!userId || !year || !month) {
-      res.status(400).json({
+      return res.status(400).json({
         error: "Parámetros userId, year y month son obligatorios",
       });
-      return;
     }
 
-    const monthData = findMonthHours(userId, year, month);
-    if (!monthData) {
-      res.status(404).json({ error: "No hay datos de horas para ese mes." });
-      return;
+    try {
+      const monthData = await findMonthHours(userId, year, month);
+      if (!monthData) {
+        return res
+          .status(404)
+          .json({ error: "No hay datos de horas para ese mes." });
+      }
+
+      const dbUser = await getUserById(userId);
+      if (!dbUser) {
+        return res.status(404).json({ error: "Usuario no encontrado" });
+      }
+
+      const pdfUser = {
+        workCenter: dbUser.work_center || "",
+        companyCif: dbUser.company_cif || "",
+        companyCcc: dbUser.company_ccc || "",
+        workerLastName: dbUser.worker_last_name || "",
+        workerFirstName: dbUser.worker_first_name || "",
+        workerNif: dbUser.worker_nif || "",
+        workerSsNumber: dbUser.worker_ss_number || "",
+        username: dbUser.username,
+      };
+
+      const pdfBytes = await createPdfForMonth(monthData, pdfUser as any);
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="registro_horas_${year}_${String(month).padStart(
+          2,
+          "0"
+        )}_${dbUser.username}.pdf"`
+      );
+      res.send(Buffer.from(pdfBytes));
+    } catch (err) {
+      console.error("Error en GET /api/admin/hours/pdf:", err);
+      res.status(500).json({ error: "Error interno de servidor" });
     }
-
-    const targetUser = await getUserById(userId);
-    if (!targetUser) {
-      res.status(404).json({ error: "Usuario no encontrado" });
-      return;
-    }
-
-    const pdfBytes = await createPdfForMonth(monthData, targetUser);
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="registro_horas_${year}_${String(month).padStart(
-        2,
-        "0"
-      )}_${targetUser.username}.pdf"`
-    );
-    res.send(Buffer.from(pdfBytes));
   }
 );
 
@@ -600,13 +704,15 @@ app.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const u = await getUserById(req.user!.userId);
-      if (!u)
+      if (!u) {
         return res.status(404).json({ error: "Usuario no encontrado" });
+      }
 
       res.json({
         id: u.id,
         username: u.username,
         fullName: u.full_name,
+        role: u.role,
         vacationDaysPerYear: u.vacation_days_per_year,
         workCenter: u.work_center,
         companyCif: u.company_cif,
@@ -629,12 +735,17 @@ app.put(
   "/api/profile/avatar",
   authMiddleware,
   async (req: AuthRequest, res: Response) => {
-    const { avatarDataUrl } = req.body;
+    const { avatarDataUrl } = req.body as { avatarDataUrl?: string | null };
+
     try {
-      await pool.query(
-        `UPDATE users SET avatar_data_url = $1, updated_at = NOW() WHERE id = $2`,
-        [avatarDataUrl || null, req.user!.userId]
-      );
+      const updated = await dbUpdateUser(req.user!.userId, {
+        avatar_data_url: avatarDataUrl ?? null,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "Usuario no encontrado" });
+      }
+
       res.json({ ok: true });
     } catch (err) {
       console.error("Error al actualizar avatar:", err);
@@ -642,7 +753,6 @@ app.put(
     }
   }
 );
-
 
 // GET usuarios para selector
 app.get("/api/calendar/users", authMiddleware, async (req: AuthRequest, res) => {
@@ -662,61 +772,115 @@ app.get("/api/calendar/users", authMiddleware, async (req: AuthRequest, res) => 
 
 
 // GET eventos visibles para el que consulta
-app.get("/api/calendar/events", authMiddleware, (req: AuthRequest, res) => {
-  const me = req.user!.userId;
-  const visible = calendarEvents.filter((ev) => {
-    if (ev.visibility === "only-me") return ev.ownerId === me;
-    if (ev.visibility === "all") return true;
-    if (ev.visibility === "some") return ev.viewers?.includes(me);
-    return false;
-  });
-  res.json({ events: visible });
-});
+app.get(
+  "/api/calendar/events",
+  authMiddleware,
+  async (req: AuthRequest, res) => {
+    try {
+      const dbEvents = await getVisibleEventsForUser(req.user!.userId);
 
-// POST nuevo evento
-app.post("/api/calendar/events", authMiddleware, (req: AuthRequest, res) => {
-  const {
-    type,
-    date,
-    visibility,
-    viewers,
-    status,
-    medicalJustificationDataUrl,
-  } = req.body;
-  if (!type || !date)
-    return res.status(400).json({ error: "Faltan campos" });
+      const events = dbEvents.map((e) => ({
+        id: e.id,
+        ownerId: e.owner_id,
+        type: e.type as EventType,
+        date: e.date, // 'YYYY-MM-DD'
+        status: (e.status as "pending" | "approved" | null) ?? undefined,
+        visibility: e.visibility as Visibility,
+        viewers: e.viewers ?? undefined,
+        medicalJustificationFileName: e.medical_file ?? undefined,
+      }));
 
-  // ❗ Regla: no permitir más de unas vacaciones por día y usuario
-  if (type === "vacaciones") {
-    const existsSameDayVacation = calendarEvents.some(
-      (e) =>
-        e.ownerId === req.user!.userId &&
-        e.type === "vacaciones" &&
-        e.date === date
-    );
-    if (existsSameDayVacation) {
-      return res
-        .status(400)
-        .json({ error: "Ya tienes unas vacaciones ese día." });
+      res.json({ events });
+    } catch (err) {
+      console.error("Error GET /api/calendar/events:", err);
+      res.status(500).json({ error: "Error interno" });
     }
   }
+);
 
-  const newEvent: CalendarEvent = {
-    id: String(Date.now()),
-    ownerId: req.user!.userId,
-    type,
-    date,
-    visibility: visibility || "only-me",
-    viewers: viewers || undefined,
-    status: status || undefined,
-    medicalJustificationFileName: medicalJustificationDataUrl
-      ? "justificante.png"
-      : undefined,
-  };
+// POST nuevo evento
+// En index.ts, endpoint POST /api/calendar/events
+app.post(
+  "/api/calendar/events",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const { type, date, visibility, viewers, medicalJustificationDataUrl } = req.body;
+    const userId = req.user!.userId;
 
-  calendarEvents.push(newEvent);
-  res.json(newEvent);
-});
+    console.log("📅 Creando evento:", { type, date, visibility, userId });
+
+    if (!type || !date) {
+      console.log("❌ Error: faltan campos obligatorios");
+      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    }
+
+    const isoDate = String(date).slice(0, 10);
+
+    try {
+      if (type === "vacaciones") {
+        console.log("🔍 Verificando vacaciones para:", { userId, isoDate });
+
+        const already = await doesUserHaveVacationOnDate(userId, isoDate);
+        if (already) {
+          console.log("❌ Ya existe vacación en:", isoDate);
+          return res.status(400).json({ error: "Ya tienes vacaciones en ese día" });
+        }
+
+        const user = await getUserById(userId);
+        if (!user) {
+          console.log("❌ Usuario no encontrado:", userId);
+          return res.status(404).json({ error: "Usuario no encontrado" });
+        }
+
+        const approved = await countApprovedVacationsForUser(userId);
+        const allowed = user.vacation_days_per_year ?? 23;
+
+        console.log("📊 Vacaciones:", { approved, allowed, disponibles: allowed - approved });
+
+        if (approved >= allowed) {
+          console.log("❌ Sin días disponibles");
+          return res
+            .status(400)
+            .json({ error: "No te quedan días de vacaciones disponibles" });
+        }
+      }
+
+      const safeVisibility: Visibility =
+        visibility === "all" || visibility === "some" || visibility === "only-me"
+          ? visibility
+          : "only-me";
+
+      const dbEvent = await createCalendarEvent({
+        ownerId: userId,
+        type,
+        date: isoDate,
+        visibility: safeVisibility,
+        viewers: safeVisibility === "some" ? viewers ?? [] : null,
+        status: type === "vacaciones" ? "pending" : null,
+        medicalFile: medicalJustificationDataUrl ? "justificante.png" : null,
+      });
+
+      const event = {
+        id: dbEvent.id,
+        ownerId: dbEvent.owner_id,
+        type: dbEvent.type as EventType,
+        date: dbEvent.date,
+        status: (dbEvent.status as "pending" | "approved" | null) ?? undefined,
+        visibility: dbEvent.visibility as Visibility,
+        viewers: dbEvent.viewers ?? undefined,
+        medicalJustificationFileName: dbEvent.medical_file ?? undefined,
+      };
+
+      console.log("✅ Evento creado en BD:", event);
+      res.json(event);
+    } catch (err: any) {
+      console.error("❌ Error POST /api/calendar/events:", err);
+      res
+        .status(500)
+        .json({ error: "Error interno creando evento", detail: String(err.message || err) });
+    }
+  }
+);
 
 // PATCH evento (cambio de tipo, status, visibilidad, viewers)
 app.patch(
@@ -769,164 +933,219 @@ app.patch(
   }
 );
 
-// DELETE evento
+// DELETE evento (solo el dueño o admin)
+// En index.ts, reemplaza el endpoint DELETE /api/calendar/events/:id
+
 app.delete(
   "/api/calendar/events/:id",
   authMiddleware,
-  (req: AuthRequest, res: Response) => {
-    const idx = calendarEvents.findIndex((e) => e.id === req.params.id);
-    if (idx === -1)
-      return res.status(404).json({ error: "Evento no encontrado" });
+  async (req: AuthRequest, res: Response) => {
+    const eventId = req.params.id;
+    const userId = req.user!.userId;
 
-    const ev = calendarEvents[idx];
+    try {
+      // Primero obtener el evento para saber si es una vacación
+      const dbEvent = await getCalendarEventById(eventId);
 
-    if (ev.ownerId !== req.user!.userId && req.user!.role !== "admin") {
-      return res.status(403).json({ error: "No autorizado" });
+      if (!dbEvent) {
+        return res.status(404).json({ error: "Evento no encontrado" });
+      }
+
+      // Solo el dueño o admin pueden borrar
+      if (req.user!.role !== "admin" && dbEvent.owner_id !== userId) {
+        return res.status(403).json({ error: "No autorizado" });
+      }
+
+      // Si es una vacación (sin importar el status), devolvemos el día
+      const wasVacation = dbEvent.type === "vacaciones";
+
+      await deleteCalendarEventById(eventId);
+
+      console.log(`✅ Evento eliminado: ${eventId}, tipo: ${dbEvent.type}, devuelve día: ${wasVacation}`);
+
+      // Respuesta indica si era una vacación aprobada (para que el frontend actualice el contador)
+      res.json({
+        ok: true,
+        wasVacation,  // ⬅️ TRUE si es vacación (pending o approved)
+        eventType: dbEvent.type
+      });
+    } catch (err) {
+      console.error("Error DELETE /api/calendar/events/:id:", err);
+      res.status(500).json({ error: "Error interno" });
     }
-
-    calendarEvents.splice(idx, 1);
-    // Los días de vacaciones se recalculan automáticamente en /vacation-days-left
-    res.json({ ok: true });
   }
 );
 
 // GET días de vacaciones restantes
+// En index.ts - verifica que este endpoint esté correcto
 app.get(
   "/api/calendar/vacation-days-left",
   authMiddleware,
   async (req: AuthRequest, res) => {
-    try {
-      const u = await getUserById(req.user!.userId);
-      if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+    const userId = req.user!.userId;
 
-      // De momento contamos solo las aprobadas
-      const approved = calendarEvents.filter(
-        (e) =>
-          e.ownerId === req.user!.userId &&
-          e.type === "vacaciones" &&
-          e.status === "approved"
-      ).length;
-      const left = (u.vacation_days_per_year ?? 23) - approved;
-      res.json({ daysLeft: left });
+    try {
+      const user = await getUserById(userId);
+      if (!user) {
+        return res.status(404).json({ error: "Usuario no encontrado" });
+      }
+
+      // Usa la función que tenga sentido para tu lógica de negocio:
+      // const usedDays = await countAllVacationsForUser(userId);
+      const usedDays = await countApprovedVacationsForUser(userId);
+
+      const allowed = user.vacation_days_per_year ?? 23;
+      const daysLeft = allowed - usedDays;
+
+      console.log(
+        `📊 Días de vacaciones - Usuario: ${userId}, Usados: ${usedDays}, Permitidas: ${allowed}, Restantes: ${daysLeft}`
+      );
+
+      return res.json({ daysLeft });
     } catch (err) {
-      console.error("Error en /api/calendar/vacation-days-left:", err);
-      res.status(500).json({ error: "Error interno de servidor" });
+      console.error("Error /api/calendar/vacation-days-left:", err);
+      return res.status(500).json({ error: "Error interno" });
     }
   }
 );
 
-// ====== MIS DOCUMENTOS ======
+// ====== MIS DOCUMENTOS (YA EN BD) ======
 
 /* 1. Listado de nóminas del usuario */
-app.get(
-  "/api/documents/payrolls",
-  authMiddleware,
-  (req: AuthRequest, res) => {
-    const list = payrollsDb.filter((p) => p.ownerId === req.user!.userId);
-    res.json({ payrolls: list });
+app.get("/api/documents/payrolls", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const list = await listPayrollsForUser(req.user!.userId);
+    res.json({
+      payrolls: list.map((p) => ({
+        id: p.id,
+        ownerId: p.owner_id,
+        year: String(p.year),
+        month: p.month,
+        fileName: p.file_name,
+      })),
+    });
+  } catch (err) {
+    console.error("Error /documents/payrolls:", err);
+    res.status(500).json({ error: "Error interno" });
   }
-);
+});
 
 /* 2. Descarga de una nómina */
 app.get(
   "/api/documents/payrolls/:id/download",
   authMiddleware,
-  (req: AuthRequest, res) => {
-    const pay = payrollsDb.find(
-      (p) => p.id === req.params.id && p.ownerId === req.user!.userId
-    );
-    if (!pay) return res.status(404).json({ error: "Nómina no encontrada" });
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const pay = await getPayrollById(req.params.id);
+      if (!pay || pay.owner_id !== req.user!.userId) {
+        return res.status(404).json({ error: "Nómina no encontrada" });
+      }
 
-    // Fichero simulado
-    const fakeBuffer = Buffer.from(
-      `CONTENIDO DE LA NÓMINA ${pay.fileName}\n`
-    );
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${pay.fileName}"`
-    );
-    res.send(fakeBuffer);
+      // Fichero simulado: buffer con texto
+      const fakeBuffer = Buffer.from(
+        `CONTENIDO DE LA NÓMINA ${pay.file_name}\nAÑO: ${pay.year} MES: ${pay.month}\n`
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${pay.file_name}"`
+      );
+      res.send(fakeBuffer);
+    } catch (err) {
+      console.error("Error /documents/payrolls/:id/download:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
   }
 );
 
 /* 3. Contrato del usuario */
-app.get(
-  "/api/documents/contract",
-  authMiddleware,
-  async (req: AuthRequest, res) => {
-    try {
-      const user = await getUserById(req.user!.userId);
-      if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
-
-      const fileName = `contrato_${user.username}.pdf`;
-      res.json({ contract: { fileName } });
-    } catch (err) {
-      console.error("Error en /api/documents/contract:", err);
-      res.status(500).json({ error: "Error interno de servidor" });
-    }
+app.get("/api/documents/contract", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const c = await getContractForOwner(req.user!.userId);
+    if (!c) return res.json({ contract: null });
+    res.json({ contract: { fileName: c.file_name } });
+  } catch (err) {
+    console.error("Error /documents/contract:", err);
+    res.status(500).json({ error: "Error interno" });
   }
-);
+});
 
 /* 4. Descarga del contrato */
 app.get(
   "/api/documents/contract/download",
   authMiddleware,
-  async (req: AuthRequest, res) => {
+  async (req: AuthRequest, res: Response) => {
     try {
-      const user = await getUserById(req.user!.userId);
-      if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+      const c = await getContractForOwner(req.user!.userId);
+      if (!c) return res.status(404).json({ error: "Contrato no encontrado" });
 
-      const fileName = `contrato_${user.username}.pdf`;
       const fakeBuffer = Buffer.from(
-        `CONTRATO DE TRABAJO DE ${user.full_name}\n`
+        `CONTRATO DE TRABAJO\nFichero: ${c.file_name}\n`
       );
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${fileName}"`
+        `attachment; filename="${c.file_name}"`
       );
       res.send(fakeBuffer);
     } catch (err) {
-      console.error("Error en /api/documents/contract/download:", err);
-      res.status(500).json({ error: "Error interno de servidor" });
+      console.error("Error /documents/contract/download:", err);
+      res.status(500).json({ error: "Error interno" });
     }
   }
 );
 
 /* 5. Listado de citaciones */
-app.get(
-  "/api/documents/citations",
-  authMiddleware,
-  (req: AuthRequest, res) => {
-    const list = citationsDb.filter((c) => c.ownerId === req.user!.userId);
-    res.json({ citations: list });
+app.get("/api/documents/citations", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const list = await listCitationsForUser(req.user!.userId);
+    res.json({
+      citations: list.map((c) => ({
+        id: c.id,
+        ownerId: c.owner_id,
+        title: c.title,
+        issuedAt: c.issued_at,
+        fileName: c.file_name,
+      })),
+    });
+  } catch (err) {
+    console.error("Error /documents/citations:", err);
+    res.status(500).json({ error: "Error interno" });
   }
-);
+});
 
 /* 6. Descarga de una citación */
 app.get(
   "/api/documents/citations/:id/download",
   authMiddleware,
-  (req: AuthRequest, res) => {
-    const cit = citationsDb.find(
-      (c) => c.id === req.params.id && c.ownerId === req.user!.userId
-    );
-    if (!cit) return res.status(404).json({ error: "Citación no encontrada" });
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cit = await getCitationById(req.params.id);
+      if (!cit || cit.owner_id !== req.user!.userId) {
+        return res.status(404).json({ error: "Citación no encontrada" });
+      }
 
-    const fakeBuffer = Buffer.from(
-      `CITACIÓN: ${cit.title}\nFecha: ${cit.issuedAt}\n`
-    );
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${cit.fileName}"`
-    );
-    res.send(fakeBuffer);
+      const fakeBuffer = Buffer.from(
+        `CITACIÓN: ${cit.title}\nFecha: ${cit.issued_at}\nFichero: ${cit.file_name}\n`
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${cit.file_name}"`
+      );
+      res.send(fakeBuffer);
+    } catch (err) {
+      console.error("Error /documents/citations/:id/download:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
   }
 );
 
 // ====== ADMIN: CALENDARIO ======
+// -------------------------
+// Administración: usuarios (YA CON BD)
+// -------------------------
+
 // LISTADO
 app.get(
   "/api/admin/users",
@@ -978,7 +1197,20 @@ app.post(
       workerFirstName,
       workerNif,
       workerSsNumber,
-    } = req.body as any;
+    } = req.body as {
+      username: string;
+      fullName: string;
+      password: string;
+      role?: "worker" | "admin";
+      vacationDaysPerYear?: number;
+      workCenter?: string;
+      companyCif?: string;
+      companyCcc?: string;
+      workerLastName?: string;
+      workerFirstName?: string;
+      workerNif?: string;
+      workerSsNumber?: string;
+    };
 
     if (!username || !fullName || !password) {
       res.status(400).json({
@@ -990,9 +1222,7 @@ app.post(
     try {
       const existing = await getUserByUsername(username);
       if (existing) {
-        res
-          .status(400)
-          .json({ error: "Ya existe un usuario con ese username" });
+        res.status(400).json({ error: "Ya existe un usuario con ese username" });
         return;
       }
 
@@ -1000,16 +1230,16 @@ app.post(
         username,
         full_name: fullName,
         password,
-        role,
+        role: role ?? "worker",
         vacation_days_per_year: vacationDaysPerYear,
-        work_center: workCenter,
-        company_cif: companyCif,
-        company_ccc: companyCcc,
-        worker_last_name: workerLastName,
-        worker_first_name: workerFirstName,
-        worker_nif: workerNif,
-        worker_ss_number: workerSsNumber,
-      } as any);
+        work_center: workCenter ?? null,
+        company_cif: companyCif ?? null,
+        company_ccc: companyCcc ?? null,
+        worker_last_name: workerLastName ?? null,
+        worker_first_name: workerFirstName ?? null,
+        worker_nif: workerNif ?? null,
+        worker_ss_number: workerSsNumber ?? null,
+      });
 
       res.json({
         user: {
@@ -1052,7 +1282,7 @@ app.patch(
 
       const {
         username,
-        password,
+        password, // Campo que queremos actualizar
         fullName,
         vacationDaysPerYear,
         workCenter,
@@ -1062,8 +1292,21 @@ app.patch(
         workerFirstName,
         workerNif,
         workerSsNumber,
-      } = req.body as any;
+      } = req.body as {
+        username?: string;
+        password?: string;
+        fullName?: string;
+        vacationDaysPerYear?: number;
+        workCenter?: string;
+        companyCif?: string;
+        companyCcc?: string;
+        workerLastName?: string;
+        workerFirstName?: string;
+        workerNif?: string;
+        workerSsNumber?: string;
+      };
 
+      // Si se intenta cambiar el username, verificar que no exista otro usuario con ese username
       if (username !== undefined && username !== targetUser.username) {
         const existingUser = await getUserByUsername(username);
         if (existingUser && existingUser.id !== id) {
@@ -1079,17 +1322,17 @@ app.patch(
         password,
         full_name: fullName,
         vacation_days_per_year: vacationDaysPerYear,
-        work_center: workCenter,
-        company_cif: companyCif,
-        company_ccc: companyCcc,
-        worker_last_name: workerLastName,
-        worker_first_name: workerFirstName,
-        worker_nif: workerNif,
-        worker_ss_number: workerSsNumber,
-      } as any);
+        work_center: workCenter ?? null,
+        company_cif: companyCif ?? null,
+        company_ccc: companyCcc ?? null,
+        worker_last_name: workerLastName ?? null,
+        worker_first_name: workerFirstName ?? null,
+        worker_nif: workerNif ?? null,
+        worker_ss_number: workerSsNumber ?? null,
+      });
 
       if (!updated) {
-        res.status(404).json({ error: "Usuario no encontrado" });
+        res.status(404).json({ error: "Usuario no encontrado tras actualizar" });
         return;
       }
 
@@ -1125,6 +1368,7 @@ app.patch(
   adminOnlyMiddleware,
   async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
+
     try {
       const targetUser = await getUserById(id);
       if (!targetUser) {
@@ -1165,6 +1409,7 @@ app.patch(
   adminOnlyMiddleware,
   async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
+
     try {
       const targetUser = await getUserById(id);
       if (!targetUser) {
@@ -1188,6 +1433,7 @@ app.delete(
   adminOnlyMiddleware,
   async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
+
     try {
       const targetUser = await getUserById(id);
       if (!targetUser) {
@@ -1215,13 +1461,6 @@ app.delete(
 
       await dbDeleteUser(id);
 
-      // Mientras horas estén en memoria, mantenemos esto:
-      for (let i = hoursStore.length - 1; i >= 0; i--) {
-        if (hoursStore[i].userId === id) {
-          hoursStore.splice(i, 1);
-        }
-      }
-
       res.json({ ok: true });
     } catch (err) {
       console.error("Error borrando usuario:", err);
@@ -1229,6 +1468,7 @@ app.delete(
     }
   }
 );
+
 
 // Comprobar que la API está viva
 app.get("/api/health", (req, res) => {
@@ -1268,6 +1508,284 @@ app.post("/api/debug/db-users/demo", async (req, res) => {
     res.status(500).json({ error: "Error insertando demo en la BD" });
   }
 });
+
+// ====== ADMIN: DOCUMENTOS (YA EN BD, PDFs SIMULADOS) ======
+
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
+
+// Nómina
+app.get(
+  "/api/admin/documents/payrolls/:id",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const p = await getPayrollById(req.params.id);
+      if (!p) return res.status(404).json({ error: "No encontrada" });
+
+      const buffer = Buffer.from(
+        `CONTENIDO PDF NÓMINA ${p.file_name}\nAÑO: ${p.year} MES: ${p.month}\n`
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${p.file_name}"`
+      );
+      res.send(buffer);
+    } catch (err) {
+      console.error("Error admin get payroll:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.delete(
+  "/api/admin/documents/payrolls/:id",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      await deletePayrollRecord(req.params.id);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error admin delete payroll:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.post(
+  "/api/admin/documents/payroll",
+  authMiddleware,
+  adminOnlyMiddleware,
+  upload.single("file"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const ownerId = req.body.ownerId;
+      const month = req.body.month; // ya viene con padStart(2,"0") desde el front
+      const year = Number(req.body.year);
+      const file = req.file;
+
+      if (!file) return res.status(400).json({ error: "Falta archivo" });
+      if (!ownerId || !month || !year) {
+        return res.status(400).json({ error: "Faltan datos de nómina" });
+      }
+
+      const fileName = `nomina_${year}_${month}.pdf`;
+
+      const newDoc = await createPayrollRecord({
+        ownerId,
+        year,
+        month,
+        fileName,
+      });
+
+      res.json({
+        id: newDoc.id,
+        ownerId: newDoc.owner_id,
+        month: newDoc.month,
+        year: String(newDoc.year),
+        fileName: newDoc.file_name,
+      });
+    } catch (err) {
+      console.error("Error admin upload payroll:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// Contrato
+app.get(
+  "/api/admin/documents/contract",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      // OJO: ahora mismo se está usando el contrato propio del admin logueado
+      const c = await getContractForOwner(req.user!.userId);
+      res.json({ contract: c ? { fileName: c.file_name } : null });
+    } catch (err) {
+      console.error("Error admin get contract:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.delete(
+  "/api/admin/documents/contract",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      await deleteContractRecord(req.user!.userId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error admin delete contract:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.post(
+  "/api/admin/documents/contract",
+  authMiddleware,
+  adminOnlyMiddleware,
+  upload.single("file"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const ownerId = req.body.ownerId;
+      const file = req.file;
+      if (!file) return res.status(400).json({ error: "Falta archivo" });
+      if (!ownerId) return res.status(400).json({ error: "Falta ownerId" });
+
+      const newDoc = await upsertContractRecord({
+        ownerId,
+        fileName: `contrato_${ownerId}.pdf`,
+      });
+
+      res.json({ ownerId: newDoc.owner_id, fileName: newDoc.file_name });
+    } catch (err) {
+      console.error("Error admin upload contract:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// Citaciones
+app.get(
+  "/api/admin/documents/citations/:id",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const c = await getCitationById(req.params.id);
+      if (!c) return res.status(404).json({ error: "No encontrada" });
+
+      const buffer = Buffer.from(
+        `CITACIÓN ${c.title}\nFecha: ${c.issued_at}\nFichero: ${c.file_name}\n`
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${c.file_name}"`
+      );
+      res.send(buffer);
+    } catch (err) {
+      console.error("Error admin get citation:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.delete(
+  "/api/admin/documents/citations/:id",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      await deleteCitationRecord(req.params.id);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error admin delete citation:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.post(
+  "/api/admin/documents/citation",
+  authMiddleware,
+  adminOnlyMiddleware,
+  upload.single("file"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const ownerId = req.body.ownerId;
+      const title = req.body.title || "Citación";
+      const issuedAt = req.body.issuedAt;
+      const file = req.file;
+      if (!file) return res.status(400).json({ error: "Falta archivo" });
+      if (!ownerId || !issuedAt) {
+        return res.status(400).json({ error: "Faltan datos de citación" });
+      }
+
+      const newDoc = await createCitationRecord({
+        ownerId,
+        title,
+        issuedAt,
+        fileName: `cita_${Date.now()}.pdf`,
+      });
+
+      res.json({
+        id: newDoc.id,
+        ownerId: newDoc.owner_id,
+        title: newDoc.title,
+        issuedAt: newDoc.issued_at,
+        fileName: newDoc.file_name,
+      });
+    } catch (err) {
+      console.error("Error admin upload citation:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// ==============================
+// ADMIN: listar eventos de un usuario
+// ==============================
+app.get(
+  "/api/admin/calendar/events/:userId",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res) => {
+    const targetId = req.params.userId;
+
+    try {
+      const dbEvents = await listEventsForUser(targetId);
+
+      const events = dbEvents.map((e) => ({
+        id: e.id,
+        ownerId: e.owner_id,
+        type: e.type as EventType,
+        date: e.date,
+        status: (e.status as "pending" | "approved" | null) ?? undefined,
+        visibility: e.visibility as Visibility,
+        viewers: e.viewers ?? undefined,
+        medicalJustificationFileName: e.medical_file ?? undefined,
+      }));
+
+      res.json({ events });
+    } catch (err) {
+      console.error("Error admin list events:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// ==============================
+// ADMIN: aprobar/rechazar vacaciones
+// ==============================
+app.patch(
+  "/api/admin/calendar/events/:id/vacation",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res) => {
+    const id = req.params.id;
+    const { status } = req.body;
+
+    try {
+      if (status !== "approved" && status !== "pending" && status !== null) {
+        return res.status(400).json({ error: "Estado inválido" });
+      }
+
+      await updateEventStatus(id, status);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error update vacation:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
 
 // -------------------------
 // Arranque del servidor

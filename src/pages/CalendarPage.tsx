@@ -7,8 +7,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000
 type EventType = "visita" | "juicio" | "vacaciones" | "cita médica" | "otros";
 type Visibility = "only-me" | "all" | "some";
 
-
-
 export interface CalendarEvent {
     id: string;
     ownerId: string;
@@ -176,7 +174,7 @@ const CalendarPage: React.FC = () => {
         if (newType === "vacaciones" && updated.status === "approved") {
             setVacationDaysLeft((prev) => prev - 1);
         }
-        setEvents(events.map((e) => (e.id === editingEvent.id ? updated : e)));
+        setEvents((prev) => prev.map((e) => (e.id === editingEvent.id ? updated : e)));
 
         // Enviamos al backend (sin esperar respuesta)
         fetch(`${API_BASE_URL}/calendar/events/${editingEvent.id}`, {
@@ -216,8 +214,12 @@ const CalendarPage: React.FC = () => {
             date: selectedDay,
             visibility,
             viewers: visibility === "some" ? viewers : undefined,
-            status: type === "vacaciones" ? "pending" : undefined,
         };
+
+        // ✅ IMPORTANTE: Agregar status para vacaciones
+        if (type === "vacaciones") {
+            body.status = "pending";
+        }
 
         if (type === "cita médica" && medicalFile) {
             const reader = new FileReader();
@@ -234,13 +236,20 @@ const CalendarPage: React.FC = () => {
     };
 
     // Borrar evento
+    // En CalendarPage.tsx, reemplaza la función handleDeleteEvent
+
+    // En CalendarPage.tsx, reemplaza la función handleDeleteEvent
+
+    // En CalendarPage.tsx, línea ~433, reemplaza handleDeleteEvent:
+
     const handleDeleteEvent = (ev: CalendarEvent) => {
         // Eliminamos localmente
-        setEvents(events.filter((e) => e.id !== ev.id));
+        setEvents((prev) => prev.filter((e) => e.id !== ev.id));
 
-        // Si era vacación aprobada, devolvemos el día
-        if (ev.type === "vacaciones" && ev.status === "approved") {
+        // Si era vacación (pending o approved), devolvemos el día
+        if (ev.type === "vacaciones") {
             setVacationDaysLeft((prev) => prev + 1);
+            console.log("🔄 Devolviendo 1 día de vacaciones");
         }
 
         // Enviamos al backend sin esperar
@@ -252,6 +261,7 @@ const CalendarPage: React.FC = () => {
                 if (!r.ok) console.error("Error al eliminar");
             })
             .catch((err) => console.error("Error de red", err));
+
         setEditingEvent(null);
     };
 
@@ -741,37 +751,78 @@ const CalendarPage: React.FC = () => {
     );
 
     // Enviar rango de vacaciones
-    function createVacationRangeFromTo(start: string, end: string) {
-        const days = Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1;
-        if (days > vacationDaysLeft) {
+    // Enviar rango de vacaciones
+    // Enviar rango de vacaciones sin problemas de zona horaria
+    // En CalendarPage.tsx, reemplaza la función createVacationRangeFromTo
+
+    async function createVacationRangeFromTo(start: string, end: string) {
+        // start y end vienen como 'YYYY-MM-DD'
+        const [sy, sm, sd] = start.split("-").map(Number);
+        const [ey, em, ed] = end.split("-").map(Number);
+
+        // Función auxiliar para saber días de un mes
+        const daysInMonth = (y: number, m: number) => {
+            const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+            const table = [31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+            return table[m - 1];
+        };
+
+        // Compara fecha (y,m,d)
+        const isAfter = (y1: number, m1: number, d1: number, y2: number, m2: number, d2: number) => {
+            if (y1 > y2) return true;
+            if (y1 < y2) return false;
+            if (m1 > m2) return true;
+            if (m1 < m2) return false;
+            return d1 > d2;
+        };
+
+        // Calculamos número de días sin usar Date
+        let y = sy, m = sm, d = sd;
+        let count = 0;
+        while (!isAfter(y, m, d, ey, em, ed)) {
+            count++;
+            d++;
+            if (d > daysInMonth(y, m)) {
+                d = 1;
+                m++;
+                if (m > 12) {
+                    m = 1;
+                    y++;
+                }
+            }
+        }
+
+        if (count > vacationDaysLeft) {
             alert(`Solo te quedan ${vacationDaysLeft} días de vacaciones`);
             return;
         }
 
+        // Volvemos al inicio y generamos todas las fechas como strings
         const dates: string[] = [];
-        for (let d = new Date(start); d <= new Date(end); d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().slice(0, 10);
+        y = sy; m = sm; d = sd;
+        while (!isAfter(y, m, d, ey, em, ed)) {
+            const yyyy = String(y);
+            const mm = String(m).padStart(2, "0");
+            const dd = String(d).padStart(2, "0");
+            dates.push(`${yyyy}-${mm}-${dd}`);
 
-            // PROTECCIÓN: No agregar si ya existe vacación ese día
-            const existingVacation = events.some(e => e.date === dateStr && e.type === "vacaciones");
-            if (!existingVacation) {
-                dates.push(dateStr);
+            d++;
+            if (d > daysInMonth(y, m)) {
+                d = 1;
+                m++;
+                if (m > 12) {
+                    m = 1;
+                    y++;
+                }
             }
         }
 
-        if (dates.length === 0) {
-            alert("Todos los días del rango ya tienen vacaciones asignadas");
-            return;
-        }
+        // ✅ CAMBIO IMPORTANTE: Crear eventos de forma SECUENCIAL
+        const newEvents: CalendarEvent[] = [];
 
-        if (dates.length > vacationDaysLeft) {
-            alert(`Solo te quedan ${vacationDaysLeft} días de vacaciones disponibles`);
-            return;
-        }
-
-        Promise.all(
-            dates.map((date) =>
-                fetch(`${API_BASE_URL}/calendar/events`, {
+        for (const date of dates) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/calendar/events`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -784,14 +835,32 @@ const CalendarPage: React.FC = () => {
                         visibility,
                         viewers: visibility === "some" ? viewers : undefined,
                     }),
-                }).then((r) => r.json())
-            )
-        )
-            .then((newEvents) => {
-                setEvents([...events, ...newEvents]);
-                setVacationDaysLeft((prev) => prev - dates.length);
-            })
-            .catch(() => alert("Error al guardar vacaciones"));
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error(`Error creando vacación para ${date}:`, error);
+                    alert(`Error al crear vacación del ${date}: ${error.error || 'Error desconocido'}`);
+                    // Si falla una, detener el proceso
+                    break;
+                }
+
+                const event = await response.json();
+                newEvents.push(event);
+
+            } catch (err) {
+                console.error(`Error de red creando vacación para ${date}:`, err);
+                alert(`Error de red al crear vacación del ${date}`);
+                break;
+            }
+        }
+
+        // Actualizar el estado solo con los eventos que se crearon exitosamente
+        if (newEvents.length > 0) {
+            setEvents((prev) => [...prev, ...newEvents]);
+            setVacationDaysLeft((prev) => prev - newEvents.length);
+            alert(`Se crearon ${newEvents.length} días de vacaciones correctamente`);
+        }
     }
 
     // Envío simple
