@@ -1,44 +1,100 @@
-name: Deploy to Elastic Beanstalk
+name: Deploy backend & frontend
 
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/deploy.yml'
+
+env:
+  AWS_REGION: eu-south-2
+  EB_APPLICATION_NAME: RegistroHoras-API
+  EB_ENVIRONMENT_NAME: RegistroHoras-API-env
+  EB_S3_BUCKET: elasticbeanstalk-eu-south-2-866064993170
+
+  # 🔹 Cambia esto por el nombre REAL del bucket donde irá el frontend
+  FRONTEND_BUCKET: registro-horas-frontend
+
+  # 🔹 Si configuras CloudFront, pon aquí el ID de la distribución
+  CLOUDFRONT_DISTRIBUTION_ID: ""  # ej: E123ABC456DEF, o déjalo vacío si aún no tienes CloudFront
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
-          node-version: 20
+          node-version: '20'
 
-      - name: Install backend deps and build
-        working-directory: backend
+      # ============================
+      # 1) Build BACKEND
+      # ============================
+      - name: Install backend dependencies and build
         run: |
+          cd backend
+          npm ci
+          npm run build
+          zip -r ../backend.zip package.json package-lock.json dist
+
+      # ============================
+      # 2) Build FRONTEND
+      # ============================
+      # Asumo que el frontend está en ./frontend y se construye con "npm run build"
+      # Ajusta los comandos si tu estructura es distinta.
+      - name: Install frontend dependencies and build
+        run: |
+          cd frontend
           npm ci
           npm run build
 
-      - name: Create deployment package
-        run: |
-          cd backend
-          zip -r ../backend.zip package.json package-lock.json dist
-
-      - name: Deploy to Elastic Beanstalk
-        uses: einaregilsson/beanstalk-deploy@v22
+      # ============================
+      # 3) Configurar credenciales AWS
+      # ============================
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          application_name: RegistroHoras-API
-          environment_name: RegistroHoras-API-env
-          region: eu-south-2
-          version_label: ${{ github.sha }}
-          deployment_package: backend.zip
-          existing_bucket_name: elasticbeanstalk-eu-south-2-866064993170
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ============================
+      # 4) Subir backend a S3 y crear versión de EB
+      # ============================
+      - name: Upload backend bundle to S3
+        run: |
+          BACKEND_KEY="backend-${GITHUB_SHA}.zip"
+          aws s3 cp backend.zip "s3://${EB_S3_BUCKET}/${BACKEND_KEY}"
+          echo "BACKEND_KEY=${BACKEND_KEY}" >> $GITHUB_ENV
+
+      - name: Create new Elastic Beanstalk application version
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name "${EB_APPLICATION_NAME}" \
+            --version-label "${GITHUB_SHA}" \
+            --source-bundle S3Bucket="${EB_S3_BUCKET}",S3Key="${BACKEND_KEY}"
+
+      - name: Deploy new backend version to Elastic Beanstalk
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name "${EB_ENVIRONMENT_NAME}" \
+            --version-label "${GITHUB_SHA}"
+
+      # ============================
+      # 5) Subir FRONTEND a S3
+      # ============================
+      - name: Upload frontend to S3
+        run: |
+          aws s3 sync frontend/dist "s3://${FRONTEND_BUCKET}" --delete
+
+      # ============================
+      # 6) Invalidar caché CloudFront (OPCIONAL)
+      # ============================
+      - name: Invalidate CloudFront cache
+        if: env.CLOUDFRONT_DISTRIBUTION_ID != ''
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${CLOUDFRONT_DISTRIBUTION_ID}" \
+            --paths "/*"

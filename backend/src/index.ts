@@ -38,6 +38,7 @@ import {
   getCalendarEventById,
   deleteCalendarEventById,
 } from "./db";
+import path from "path";
 
 // -------------------------
 // Tipos y datos en memoria
@@ -1945,6 +1946,17 @@ app.patch(
     }
   }
 );
+
+// --- Servir frontend estático (Vite build) ---
+const publicPath = path.join(__dirname, "public");
+
+// Servir archivos estáticos (JS, CSS, imágenes…)
+app.use(express.static(publicPath));
+
+// Para SPA: cualquier ruta no-API devuelve index.html
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(publicPath, "index.html"));
+});
 
 // -------------------------
 // Arranque del servidor
