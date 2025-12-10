@@ -1,87 +1,78 @@
-name: Deploy backend & frontend
+name: Deploy to AWS (backend + frontend)
 
 on:
   push:
-    branches: [ main ]
-
-env:
-  AWS_REGION: eu-south-2
-  EB_APPLICATION_NAME: RegistroHoras-API
-  EB_ENVIRONMENT_NAME: RegistroHoras-API-env
-  FRONTEND_BUCKET: registro-horas-frontend
+    branches:
+      - main
 
 jobs:
-  # ---------------- BACKEND (Elastic Beanstalk) ----------------
   backend:
+    name: Deploy backend to Elastic Beanstalk
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
 
-      - name: Install deps & build backend
+      - name: Install backend deps
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Create deployment package
         run: |
-          cd backend
-          npm ci
-          npm run build
-          # creamos el zip en la raíz del repo
           zip -r ../backend.zip package.json package-lock.json dist
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Deploy to Elastic Beanstalk
+        uses: einaregilsson/beanstalk-deploy@v22
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: RegistroHoras-API
+          environment_name: RegistroHoras-API-env
+          version_label: ${{ github.sha }}
+          region: eu-south-2
+          deployment_package: backend.zip
 
-      - name: Deploy backend to Elastic Beanstalk
-        uses: aws-actions/elastic-beanstalk-deploy@v2
-        with:
-          application-name: ${{ env.EB_APPLICATION_NAME }}
-          environment-name: ${{ env.EB_ENVIRONMENT_NAME }}
-          version-label: ${{ github.sha }}
-          region: ${{ env.AWS_REGION }}
-          deployment-package: backend.zip
-
-  # ---------------- FRONTEND (S3) ----------------
   frontend:
+    name: Deploy frontend to S3
+    needs: backend
     runs-on: ubuntu-latest
-    needs: backend   # espera a que termine el back (si quieres quitar la dependencia, borra esta línea)
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          # ⚠️ cambia "frontend" si tu carpeta del front se llama distinto (p.ej. "front")
-          cache-dependency-path: frontend/package-lock.json
 
-      - name: Install deps & build frontend
-        # ⚠️ cambia "frontend" si tu carpeta se llama distinto
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: eu-south-2
 
-      - name: Sync frontend build to S3
+      - name: Sync dist/ to S3
         run: |
-          # ⚠️ si tu build NO sale a "dist", cambia "frontend/dist" por la carpeta correcta
-          aws s3 sync frontend/dist s3://${{ env.FRONTEND_BUCKET }} --delete
+          aws s3 sync ./dist s3://registro-horas-frontend --delete
