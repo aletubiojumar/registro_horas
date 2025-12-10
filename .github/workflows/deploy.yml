@@ -1,66 +1,70 @@
-name: Deploy to AWS (backend + frontend)
+name: Deploy backend and frontend
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   backend:
     name: Deploy backend to Elastic Beanstalk
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
 
-      - name: Install backend deps
+      - name: Install backend dependencies
+        working-directory: ./backend
         run: npm ci
 
       - name: Build backend
+        working-directory: ./backend
         run: npm run build
 
-      - name: Create deployment package
+      - name: Zip backend artifact
+        working-directory: ./backend
         run: |
           zip -r ../backend.zip package.json package-lock.json dist
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-south-2
+
       - name: Deploy to Elastic Beanstalk
-        uses: einaregilsson/beanstalk-deploy@v22
+        uses: einaregilsson/beanstalk-deploy@v21
         with:
           aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region: eu-south-2
           application_name: RegistroHoras-API
           environment_name: RegistroHoras-API-env
           version_label: ${{ github.sha }}
-          region: eu-south-2
           deployment_package: backend.zip
 
   frontend:
     name: Deploy frontend to S3
     needs: backend
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
 
-      - name: Install frontend deps
+      # El frontend está en la raíz del repo, así que NO ponemos ./frontend
+      - name: Install frontend dependencies
         run: npm ci
 
       - name: Build frontend
@@ -73,6 +77,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-south-2
 
-      - name: Sync dist/ to S3
+      - name: Deploy frontend to S3
         run: |
-          aws s3 sync ./dist s3://registro-horas-frontend --delete
+          aws s3 sync dist s3://registro-horas-frontend \
+            --delete \
+            --cache-control "public, max-age=300"
