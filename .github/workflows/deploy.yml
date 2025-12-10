@@ -9,40 +9,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Install Node.js
+
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm install
-
-      - name: Build backend
-        working-directory: backend
-        run: npm run build
-
-      - name: Create deployment ZIP
+      - name: Install backend deps and build
         working-directory: backend
         run: |
-          zip -r ../backend.zip package.json package-lock.json dist
-      # El ZIP quedará en la raíz del repo como backend.zip
+          npm ci
+          npm run build
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-south-2
+      - name: Create deployment package
+        run: |
+          cd backend
+          zip -r ../backend.zip package.json package-lock.json dist
 
       - name: Deploy to Elastic Beanstalk
-        uses: aws-actions/elastic-beanstalk-deploy@v2
+        uses: einaregilsson/beanstalk-deploy@v22
         with:
-          application-name: RegistroHoras-API
-          environment-name: RegistroHoras-API-env
-          version-label: ${{ github.sha }}
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: RegistroHoras-API
+          environment_name: RegistroHoras-API-env
           region: eu-south-2
-          deployment-package: backend.zip
+          version_label: ${{ github.sha }}
+          deployment_package: backend.zip
+          existing_bucket_name: elasticbeanstalk-eu-south-2-866064993170
