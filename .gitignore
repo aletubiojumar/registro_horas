@@ -1,59 +1,38 @@
-# --- Node / npm / pnpm / yarn ---
+# --- Dependencias Node ---
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
+**/node_modules/
 
-# IMPORTANTE: ahora SÍ vamos a versionar los lockfiles
-# para tener builds reproducibles en front y backend.
-# Si en algún momento NO quisieras versionarlos, vuelve a ignorarlos aquí:
-# package-lock.json
-# yarn.lock
-# pnpm-lock.yaml
-
-# --- Build / Vite / Node ---
+# --- Build / artefactos ---
 dist/
-.vite/
-vite.config.*.timestamp-*
+**/dist/
+build/
+**/build/
+coverage/
+.cache/
 
-# (dist/ se aplica también a cualquier dist/ del backend)
-
-# --- TypeScript ---
-*.tsbuildinfo
+# --- Entornos / secretos locales ---
+.env
+.env.*.local
 
 # --- Logs ---
 logs/
 *.log
-*.log.*
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
 
-# --- Editor / IDE ---
+# --- Config local de herramientas ---
 .vscode/
 .idea/
-*.iml
+*.swp
+*.swo
+
+# --- Entornos Python (para awsebcli) ---
+.venv/
+
+# --- Elastic Beanstalk (config local del CLI) ---
+.elasticbeanstalk/
 
 # --- Sistema operativo ---
 .DS_Store
 Thumbs.db
-
-# --- Tests / coverage ---
-coverage/
-*.lcov
-
-# --- Env / configuración secreta ---
-.env
-.env.local
-.env.development
-.env.production
-.env.test
-
-# --- Otros archivos temporales ---
-*.swp
-*.swo
-*~
-.tmp/
-.cache/
-.temp/
-
-# --- AWS ---
-*.zip
