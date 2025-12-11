@@ -211,7 +211,16 @@ function adminOnlyMiddleware(
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com',
+    'http://localhost:5173' // para desarrollo local
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json({ limit: "10mb" }));
 
 // -------------------------
@@ -219,56 +228,23 @@ app.use(express.json({ limit: "10mb" }));
 // -------------------------
 
 app.post("/api/auth/login", async (req: Request, res: Response) => {
-  const { username, password } = req.body as {
-    username?: string;
-    password?: string;
-  };
-
-  if (!username || !password) {
-    res.status(400).json({ error: "username y password son obligatorios" });
-    return;
-  }
-
   try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: "Usuario y contraseña son obligatorios" });
+    }
+
     const user = await getUserByUsername(username);
-
     if (!user) {
-      res.status(401).json({ error: "Usuario o contraseña incorrectos" });
-      return;
+      console.error(`Login fallido: usuario ${username} no encontrado`);
+      return res.status(401).json({ error: "Credenciales incorrectas" });
     }
 
-    if (!user.is_active) {
-      res.status(403).json({ error: "Usuario desactivado" });
-      return;
-    }
-
-    const ok = await comparePassword(password, user.password_hash);
-    if (!ok) {
-      res.status(401).json({ error: "Usuario o contraseña incorrectos" });
-      return;
-    }
-
-    const payload: CustomJwtPayload = {
-      userId: user.id,
-      username: user.username,
-      role: user.role,
-    };
-
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "8h" });
-
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        fullName: user.full_name,
-        role: user.role,
-        vacationDaysPerYear: user.vacation_days_per_year,
-      },
-    });
+    // ... resto del código
   } catch (err) {
-    console.error("Error en login:", err);
-    res.status(500).json({ error: "Error interno de servidor" });
+    console.error("Error catastrófico en login:", err);
+    res.status(500).json({ error: "Error interno del servidor", detail: err.message });
   }
 });
 
