@@ -16,13 +16,20 @@ function createPoolFromSecret(): Pool {
 
   if (dbHost && dbUser && dbPassword) {
     console.log("✅ Conectando a RDS con variables individuales");
+    console.log("📊 DB Config:", {
+      host: dbHost,
+      port: dbPort || 5432,
+      user: dbUser,
+      database: dbName || "registrohorasdb",  // ← CAMBIO AQUÍ
+      ssl: true
+    });
+    
     return new Pool({
       host: dbHost,
       port: Number(dbPort || 5432),
       user: dbUser,
       password: dbPassword,
-      database: dbName || "registro_horas",
-      // Descomenta si activas SSL en RDS:
+      database: dbName || "registrohorasdb",  // ← CAMBIO AQUÍ
       ssl: { rejectUnauthorized: false },
     });
   }
@@ -39,8 +46,8 @@ function createPoolFromSecret(): Pool {
         port: Number(secret.port || secret.DB_PORT || 5432),
         user: secret.username || secret.user || secret.DB_USER,
         password: secret.password || secret.DB_PASSWORD,
-        database: secret.dbname || secret.database || secret.DB_NAME || "registro_horas",
-        // ssl: { rejectUnauthorized: false },
+        database: secret.dbname || secret.database || secret.DB_NAME || "registrohorasdb",  // ← CAMBIO AQUÍ
+        ssl: { rejectUnauthorized: false },
       });
     } catch (err) {
       throw new Error(
@@ -54,6 +61,7 @@ function createPoolFromSecret(): Pool {
     "Database configuration not found. Set DB_HOST, DB_USER, DB_PASSWORD or DB_SECRET_JSON"
   );
 }
+
 // export const pool = createPoolFromSecret();
 
 // // ==============================
