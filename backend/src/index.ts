@@ -241,10 +241,40 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Credenciales incorrectas" });
     }
 
-    // ... resto del código
+    if (!user.is_active) {
+      console.warn(`Login fallido: usuario ${username} desactivado`);
+      return res.status(403).json({ error: "Usuario desactivado. Contacta con un administrador." });
+    }
+
+    const passwordOk = await comparePassword(password, user.password_hash);
+    if (!passwordOk) {
+      console.warn(`Login fallido: contraseña incorrecta para ${username}`);
+      return res.status(401).json({ error: "Credenciales incorrectas" });
+    }
+
+    const payload: CustomJwtPayload = {
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+    };
+
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.full_name,
+        role: user.role,
+      },
+    });
   } catch (err) {
     console.error("Error catastrófico en login:", err);
-    res.status(500).json({ error: "Error interno del servidor", detail: err.message });
+    res.status(500).json({
+      error: "Error interno del servidor",
+      detail: err instanceof Error ? err.message : "unknown error",
+    });
   }
 });
 
