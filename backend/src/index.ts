@@ -39,7 +39,6 @@ import {
   deleteCalendarEventById,
 } from "./db";
 import path from "path";
-
 // -------------------------
 // Tipos y datos en memoria
 // -------------------------
