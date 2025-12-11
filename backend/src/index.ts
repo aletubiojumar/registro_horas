@@ -1947,16 +1947,16 @@ app.patch(
   }
 );
 
-// --- Servir frontend estático (Vite build) ---
-const publicPath = path.join(__dirname, "public");
+// // --- Servir frontend estático (Vite build) ---
+// const publicPath = path.join(__dirname, "public");
 
-// Servir archivos estáticos (JS, CSS, imágenes…)
-app.use(express.static(publicPath));
+// // Servir archivos estáticos (JS, CSS, imágenes…)
+// app.use(express.static(publicPath));
 
-// Para SPA: cualquier ruta no-API devuelve index.html
-app.get("*", (_req, res) => {
-  res.sendFile(path.join(publicPath, "index.html"));
-});
+// // Para SPA: cualquier ruta no-API devuelve index.html
+// app.get("*", (_req, res) => {
+//   res.sendFile(path.join(publicPath, "index.html"));
+// });
 
 // -------------------------
 // Arranque del servidor
