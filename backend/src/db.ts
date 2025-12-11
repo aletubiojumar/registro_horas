@@ -23,7 +23,7 @@ function createPoolFromSecret(): Pool {
       password: dbPassword,
       database: dbName || "registro_horas",
       // Descomenta si activas SSL en RDS:
-      // ssl: { rejectUnauthorized: false },
+      ssl: { rejectUnauthorized: false },
     });
   }
 
@@ -60,7 +60,7 @@ function createPoolFromSecret(): Pool {
 // // Conexión a Postgres
 // // ==============================
 
-const isProduction = process.env.NODE_ENV === 'production';
+//const isProduction = process.env.NODE_ENV === 'production';
 
 // En db.ts, dentro de la conexión del Pool
 export const pool = createPoolFromSecret();
