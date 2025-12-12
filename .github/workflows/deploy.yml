@@ -44,7 +44,7 @@ jobs:
           aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           region: eu-south-2
-          application_name: EBRegistroHoras
+          application_name: EB_RegistroHoras
           environment_name: EBRegistroHoras-env 
           version_label: ${{ github.sha }}
           deployment_package: backend.zip
