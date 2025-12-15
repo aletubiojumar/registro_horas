@@ -2061,101 +2061,67 @@ app.get(
 );
 
 // POST: Enviar mensaje y obtener respuesta de GPT
-app.post(
-  "/api/perito-ia/chat",
-  authMiddleware,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const { chatId, message } = req.body;
-      const userId = req.user!.userId;
+app.post("/api/perito-ia/chat", authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { chatId, message } = req.body ?? {};
+    const userId = req.user!.userId;
 
-      let currentChatId = chatId;
-
-      // Si no existe chat, crear uno nuevo
-      if (!currentChatId) {
-        const title = message.substring(0, 50) + (message.length > 50 ? "..." : "");
-        const { rows } = await pool.query(
-          `INSERT INTO ia_chats (user_id, title) VALUES ($1, $2) RETURNING id`,
-          [userId, title]
-        );
-        currentChatId = rows[0].id;
-      }
-
-      // Guardar mensaje del usuario
-      await pool.query(
-        `INSERT INTO ia_messages (chat_id, role, content) VALUES ($1, 'user', $2)`,
-        [currentChatId, message]
-      );
-
-      // Obtener historial del chat
-      const { rows: historyRows } = await pool.query(
-        `SELECT role, content FROM ia_messages WHERE chat_id = $1 ORDER BY created_at ASC`,
-        [currentChatId]
-      );
-
-      // Llamar a OpenAI
-      let response;
-      try {
-        if (OPENAI_PROMPT_ID && OPENAI_PROMPT_VERSION) {
-          // Usar prompt personalizado
-          response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: `Eres un asistente especializado en peritaje judicial. Prompt ID: ${OPENAI_PROMPT_ID}, Version: ${OPENAI_PROMPT_VERSION}`,
-              },
-              ...historyRows.map((row: any) => ({
-                role: row.role,
-                content: row.content,
-              })),
-            ],
-          });
-        } else {
-          // Usar modelo estándar
-          response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: "Eres un asistente especializado en peritaje judicial.",
-              },
-              ...historyRows.map((row: any) => ({
-                role: row.role,
-                content: row.content,
-              })),
-            ],
-          });
-        }
-      } catch (openaiError) {
-        console.error("Error llamando a OpenAI:", openaiError);
-        throw new Error("Error al comunicarse con el asistente IA");
-      }
-
-      const assistantMessage = response.choices[0]?.message?.content || "No pude generar una respuesta";
-
-      // Guardar respuesta del asistente
-      await pool.query(
-        `INSERT INTO ia_messages (chat_id, role, content) VALUES ($1, 'assistant', $2)`,
-        [currentChatId, assistantMessage]
-      );
-
-      // Actualizar timestamp del chat
-      await pool.query(
-        `UPDATE ia_chats SET updated_at = NOW() WHERE id = $1`,
-        [currentChatId]
-      );
-
-      res.json({
-        chatId: currentChatId,
-        response: assistantMessage,
-      });
-    } catch (err) {
-      console.error("Error en chat IA:", err);
-      res.status(500).json({ error: "Error interno del servidor" });
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "message es obligatorio" });
     }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: "OPENAI_API_KEY no está configurada en el servidor" });
+    }
+
+    let currentChatId = chatId;
+
+    if (!currentChatId) {
+      const title = message.substring(0, 50) + (message.length > 50 ? "..." : "");
+      const { rows } = await pool.query(
+        `INSERT INTO ia_chats (user_id, title) VALUES ($1, $2) RETURNING id`,
+        [userId, title]
+      );
+      currentChatId = rows[0].id;
+    }
+
+    await pool.query(
+      `INSERT INTO ia_messages (chat_id, role, content) VALUES ($1, 'user', $2)`,
+      [currentChatId, message]
+    );
+
+    const { rows: historyRows } = await pool.query(
+      `SELECT role, content FROM ia_messages WHERE chat_id = $1 ORDER BY created_at ASC`,
+      [currentChatId]
+    );
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Eres un asistente especializado en peritaje judicial." },
+        ...historyRows.map((row: any) => ({ role: row.role, content: row.content })),
+      ],
+    });
+
+    const assistantMessage = response.choices[0]?.message?.content || "No pude generar una respuesta";
+
+    await pool.query(
+      `INSERT INTO ia_messages (chat_id, role, content) VALUES ($1, 'assistant', $2)`,
+      [currentChatId, assistantMessage]
+    );
+
+    await pool.query(`UPDATE ia_chats SET updated_at = NOW() WHERE id = $1`, [currentChatId]);
+
+    return res.json({ chatId: currentChatId, response: assistantMessage });
+  } catch (err: any) {
+    console.error("Error en chat IA:", err?.message || err);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      detail: String(err?.message || err),
+    });
   }
-);
+});
+
 
 // DELETE: Eliminar chat
 app.delete(
