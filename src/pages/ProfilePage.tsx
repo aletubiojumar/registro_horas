@@ -133,19 +133,19 @@ const ProfilePage: React.FC = () => {
 
             {/* Botones */}
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                <button onClick={() => navigate("/horas")} style={btnStyle("#fca5a5", "#fff")}>
+                <button onClick={() => navigate("/horas")} style={btnStyle("#dc2626", "#fff")}>
                     Ir a Registro Horario
                 </button>
-                <button onClick={() => navigate("/calendario")} style={btnStyle("#c4b5fd", "#fff")}>
+                <button onClick={() => navigate("/calendario")} style={btnStyle("#7c3aed", "#fff")}>
                     Mi Calendario
                 </button>
-                <button onClick={() => navigate("/mis-documentos")} style={btnStyle("#9ff5bcff", "#fff")}>
+                <button onClick={() => navigate("/mis-documentos")} style={btnStyle("#16a34a", "#fff")}>
                     Mis Documentos
                 </button>
                 <button onClick={() => navigate("/perito-ia")} style={btnStyle("#a78bfa", "#fff")}>
                     PeritoIA - Asistente
                 </button>
-                <button onClick={logout} style={btnStyle("#60a5fa", "#fff")}>
+                <button onClick={logout} style={btnStyle("#2563eb", "#fff")}>
                     Cerrar sesión
                 </button>
             </div>
