@@ -54,7 +54,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log("🔐 Cerrando sesión");
     setUser(null);
     localStorage.removeItem(STORAGE_KEY);
+    
+    // opcional: quitar el “último chat abierto”
+    localStorage.removeItem(`peritoia:lastChat:${user?.id}`);
   };
+
 
   // Mostrar un loading mientras se carga la sesión
   if (isLoading) {

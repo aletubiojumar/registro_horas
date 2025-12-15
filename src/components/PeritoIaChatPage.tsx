@@ -135,10 +135,7 @@ const PeritoIAPage = () => {
         boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
       }}>
         <div>
-          <div style={{ fontSize: "1rem", fontWeight: 600 }}>🤖 PeritoIA - Asistente Virtual</div>
-          <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-            Tu asistente inteligente
-          </div>
+          <div style={{ fontSize: "1rem", fontWeight: 600 }}>Perito GPT - Criterios</div>
         </div>
         <button
           onClick={() => window.location.href = "/perfil"}
