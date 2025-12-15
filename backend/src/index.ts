@@ -43,6 +43,39 @@ import {
 import path from "path";
 
 // -------------------------
+// IA Schema
+// -------------------------
+
+async function ensureIaSchema() {
+  // IMPORTANTE: pgcrypto antes de usar gen_random_uuid()
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ia_chats (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL,
+      title TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS ia_chats_user_id_idx ON ia_chats(user_id);`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ia_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      chat_id UUID NOT NULL REFERENCES ia_chats(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
+      content TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS ia_messages_chat_id_idx ON ia_messages(chat_id);`);
+
+  console.log("✅ IA schema listo (ia_chats / ia_messages)");
+}
+
+// -------------------------
 // OpenAI
 // -------------------------
 
@@ -2183,6 +2216,16 @@ app.get("*", (_req, res) => {
 // -------------------------
 // Arranque del servidor
 // -------------------------
+
+(async () => {
+  try {
+    await ensureIaSchema();
+    app.listen(PORT, () => console.log(`✅ Servidor corriendo en puerto ${PORT}`));
+  } catch (e) {
+    console.error("❌ Error inicializando IA schema:", e);
+    process.exit(1);
+  }
+})();
 
 app.listen(PORT, () => {
   console.log("========================================");
