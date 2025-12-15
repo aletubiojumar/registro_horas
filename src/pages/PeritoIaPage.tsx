@@ -196,7 +196,7 @@ const PeritoIAPage: React.FC = () => {
   // -------------------------
 
   const colors = {
-    border: "#e9edf3",
+    border: "#d1d5db",
     muted: "#6b7280",
     blue: "#2563eb",
     blueDark: "#1d4ed8",
@@ -391,7 +391,7 @@ const PeritoIAPage: React.FC = () => {
           {/* Input */}
           <div
             style={{
-              borderTop: `1px solid ${colors.border}`,
+              borderTop: `1.5px solid ${colors.border}`,
               background: "#fff",
               padding: 14,
             }}
@@ -415,11 +415,13 @@ const PeritoIAPage: React.FC = () => {
                   flex: 1,
                   height: 40,
                   borderRadius: 8,
-                  border: `1px solid ${colors.border}`,
+                  border: `1.5px solid ${colors.border}`,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                   padding: "0 12px",
                   outline: "none",
-                  fontSize: 13,
+                  fontSize: 15,
                   background: "#fff",
+                  letterSpacing: "0.3px",
                 }}
               />
               <button
