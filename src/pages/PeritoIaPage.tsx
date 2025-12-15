@@ -1,7 +1,5 @@
 import { useEffect, useState, useRef } from "react";
 
-const API_BASE_URL = "http://localhost:4000/api";
-
 interface Message {
   id: string;
   role: "user" | "assistant";
