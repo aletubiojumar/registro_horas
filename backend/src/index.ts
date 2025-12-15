@@ -3,6 +3,7 @@ import cors from "cors";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import multer from "multer";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import OpenAI from "openai";
 import {
   dbListUsers,
   dbCreateDemoUser,
@@ -37,8 +38,22 @@ import {
   deleteCitationRecord,
   getCalendarEventById,
   deleteCalendarEventById,
+  pool
 } from "./db";
 import path from "path";
+
+// -------------------------
+// OpenAI
+// -------------------------
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+});
+
+const OPENAI_PROMPT_ID = process.env.OPENAI_PROMPT_ID;
+const OPENAI_PROMPT_VERSION = process.env.OPENAI_PROMPT_VERSION;
+
 // -------------------------
 // Tipos y datos en memoria
 // -------------------------
@@ -1955,6 +1970,192 @@ app.patch(
     }
   }
 );
+
+// ====== PERITO IA - CHAT CON GPT ======
+// ⬅️ IMPORTANTE: Estos endpoints DEBEN ir ANTES del app.get("*", ...)
+
+// GET: Listar chats del usuario
+app.get(
+  "/api/perito-ia/chats",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, title, created_at, updated_at
+         FROM ia_chats
+         WHERE user_id = $1
+         ORDER BY updated_at DESC`,
+        [req.user!.userId]
+      );
+      res.json({ chats: rows });
+    } catch (err) {
+      console.error("Error listando chats IA:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// GET: Obtener mensajes de un chat
+app.get(
+  "/api/perito-ia/chats/:chatId",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { chatId } = req.params;
+
+      const { rows: chatRows } = await pool.query(
+        `SELECT id FROM ia_chats WHERE id = $1 AND user_id = $2`,
+        [chatId, req.user!.userId]
+      );
+
+      if (chatRows.length === 0) {
+        return res.status(404).json({ error: "Chat no encontrado" });
+      }
+
+      const { rows } = await pool.query(
+        `SELECT id, role, content, created_at as timestamp
+         FROM ia_messages
+         WHERE chat_id = $1
+         ORDER BY created_at ASC`,
+        [chatId]
+      );
+
+      res.json({ messages: rows });
+    } catch (err) {
+      console.error("Error obteniendo mensajes:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// POST: Enviar mensaje y obtener respuesta de GPT
+app.post(
+  "/api/perito-ia/chat",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { chatId, message } = req.body;
+      const userId = req.user!.userId;
+
+      let currentChatId = chatId;
+
+      // Si no existe chat, crear uno nuevo
+      if (!currentChatId) {
+        const title = message.substring(0, 50) + (message.length > 50 ? "..." : "");
+        const { rows } = await pool.query(
+          `INSERT INTO ia_chats (user_id, title) VALUES ($1, $2) RETURNING id`,
+          [userId, title]
+        );
+        currentChatId = rows[0].id;
+      }
+
+      // Guardar mensaje del usuario
+      await pool.query(
+        `INSERT INTO ia_messages (chat_id, role, content) VALUES ($1, 'user', $2)`,
+        [currentChatId, message]
+      );
+
+      // Obtener historial del chat
+      const { rows: historyRows } = await pool.query(
+        `SELECT role, content FROM ia_messages WHERE chat_id = $1 ORDER BY created_at ASC`,
+        [currentChatId]
+      );
+
+      // Llamar a OpenAI
+      let response;
+      try {
+        if (OPENAI_PROMPT_ID && OPENAI_PROMPT_VERSION) {
+          // Usar prompt personalizado
+          response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: `Eres un asistente especializado en peritaje judicial. Prompt ID: ${OPENAI_PROMPT_ID}, Version: ${OPENAI_PROMPT_VERSION}`,
+              },
+              ...historyRows.map((row: any) => ({
+                role: row.role,
+                content: row.content,
+              })),
+            ],
+          });
+        } else {
+          // Usar modelo estándar
+          response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: "Eres un asistente especializado en peritaje judicial.",
+              },
+              ...historyRows.map((row: any) => ({
+                role: row.role,
+                content: row.content,
+              })),
+            ],
+          });
+        }
+      } catch (openaiError) {
+        console.error("Error llamando a OpenAI:", openaiError);
+        throw new Error("Error al comunicarse con el asistente IA");
+      }
+
+      const assistantMessage = response.choices[0]?.message?.content || "No pude generar una respuesta";
+
+      // Guardar respuesta del asistente
+      await pool.query(
+        `INSERT INTO ia_messages (chat_id, role, content) VALUES ($1, 'assistant', $2)`,
+        [currentChatId, assistantMessage]
+      );
+
+      // Actualizar timestamp del chat
+      await pool.query(
+        `UPDATE ia_chats SET updated_at = NOW() WHERE id = $1`,
+        [currentChatId]
+      );
+
+      res.json({
+        chatId: currentChatId,
+        response: assistantMessage,
+      });
+    } catch (err) {
+      console.error("Error en chat IA:", err);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  }
+);
+
+// DELETE: Eliminar chat
+app.delete(
+  "/api/perito-ia/chats/:chatId",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { chatId } = req.params;
+
+      const { rows } = await pool.query(
+        `SELECT id FROM ia_chats WHERE id = $1 AND user_id = $2`,
+        [chatId, req.user!.userId]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Chat no encontrado" });
+      }
+
+      // Eliminar mensajes y chat
+      await pool.query(`DELETE FROM ia_messages WHERE chat_id = $1`, [chatId]);
+      await pool.query(`DELETE FROM ia_chats WHERE id = $1`, [chatId]);
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error eliminando chat:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+// ⬆️ ARRIBA van los endpoints de PeritoIA
+// ⬇️ ABAJO va el frontend estático
 
 app.get("/", (_req, res) => {
   res.json({

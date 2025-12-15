@@ -142,6 +142,9 @@ const ProfilePage: React.FC = () => {
                 <button onClick={() => navigate("/mis-documentos")} style={btnStyle("#9ff5bcff", "#fff")}>
                     Mis Documentos
                 </button>
+                <button onClick={() => navigate("/perito-ia")} style={btnStyle("#a78bfa", "#fff")}>
+                    PeritoIA - Asistente
+                </button>
                 <button onClick={logout} style={btnStyle("#60a5fa", "#fff")}>
                     Cerrar sesión
                 </button>

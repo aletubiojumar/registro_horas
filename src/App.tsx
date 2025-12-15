@@ -7,6 +7,7 @@ import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
 import CalendarPage from "./pages/CalendarPage";
 import DocumentsPage from "./pages/DocumentsPage";
+import PeritoIaPage from "./pages/PeritoIaPage";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -91,6 +92,16 @@ const App: React.FC = () => {
 
         {/* Cualquier otra ruta -> login */}
         <Route path="*" element={<Navigate to="/login" replace />} />
+
+        {/* PERITO IA */}
+        <Route
+          path="/perito-ia"
+          element={
+            <ProtectedRoute>
+              <PeritoIaPage />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );

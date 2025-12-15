@@ -36,3 +36,10 @@ pnpm-debug.log*
 # --- Sistema operativo ---
 .DS_Store
 Thumbs.db
+
+
+# PostgreSQL data directory
+backend/pgdata/
+backend/pgdata/**
+**/pgdata/
+**/pgdata/**
