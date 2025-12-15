@@ -257,7 +257,6 @@ function adminOnlyMiddleware(
 // -------------------------
 
 const app = express();
-const PORT = process.env.PORT || 8080;
 
 app.use(cors({
   origin: [
@@ -2214,26 +2213,41 @@ app.get("*", (_req, res) => {
 });
 
 // -------------------------
-// Arranque del servidor
+// Arranque del servidor (UN SOLO LISTEN)
 // -------------------------
 
-(async () => {
-  try {
-    await ensureIaSchema();
-    app.listen(PORT, () => console.log(`✅ Servidor corriendo en puerto ${PORT}`));
-  } catch (e) {
-    console.error("❌ Error inicializando IA schema:", e);
-    process.exit(1);
-  }
-})();
+const PORT = Number(process.env.PORT || 8080);
+const HOST = "0.0.0.0";
 
-app.listen(PORT, () => {
-  console.log("========================================");
-  console.log(`✅ Servidor corriendo en puerto ${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`🗄️  DB Secret: ${process.env.DB_SECRET_ARN ? "✓ Configurado" : "✗ No configurado"}`);
-  console.log(`🌐 Health check: http://localhost:${PORT}/health`);
-  console.log("========================================");
-});
+if (require.main === module) {
+  (async () => {
+    try {
+      await ensureIaSchema();
+
+      const server = app.listen(PORT, HOST, () => {
+        console.log("========================================");
+        console.log(`✅ Servidor corriendo en ${HOST}:${PORT}`);
+        console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
+        console.log(
+          `🗄️  DB Secret: ${process.env.DB_SECRET_ARN ? "✓ Configurado" : "✗ No configurado"}`
+        );
+        console.log(`🌐 Health check: http://localhost:${PORT}/health`);
+        console.log("========================================");
+      });
+
+      server.on("error", (err: any) => {
+        if (err?.code === "EADDRINUSE") {
+          console.error(`❌ Puerto ${PORT} ya está en uso`);
+        } else {
+          console.error("❌ Error al levantar el servidor:", err);
+        }
+        process.exit(1);
+      });
+    } catch (e) {
+      console.error("❌ Error inicializando IA schema:", e);
+      process.exit(1);
+    }
+  })();
+}
 
 export default app;
