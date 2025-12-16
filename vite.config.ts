@@ -6,5 +6,9 @@ export default defineConfig({
   resolve: {
     dedupe: ["react", "react-dom"],
   },
+  build: {
+    outDir: "backend/public",
+    emptyOutDir: true,
+  },
 });
 
