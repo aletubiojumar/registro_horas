@@ -4,6 +4,9 @@ import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import "./index.css";
 
+import { initTheme } from "./theme";
+initTheme();
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <AuthProvider>

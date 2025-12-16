@@ -1,3 +1,11 @@
+html, body { background: #f3f4f6; color: #111827; }
+
+html.dark, html.dark body { background: #0b1220; color: #e5e7eb; }
+
+/* opcional: inputs/botones básicos si usas estilos inline */
+html.dark input { background: #111827; color: #e5e7eb; border-color: #374151; }
+html.dark button { filter: brightness(0.95); }
+
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;

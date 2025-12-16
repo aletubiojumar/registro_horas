@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { applyTheme, readTheme } from "../theme";
+
+const [darkMode, setDarkMode] = useState(readTheme());
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
 
@@ -133,6 +136,10 @@ const ProfilePage: React.FC = () => {
 
             {/* Botones */}
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                <button onClick={() => { const next = !darkMode; setDarkMode(next); applyTheme(next); }}
+                style={btnStyle(darkMode ? "#334155" : "#111827", "#fff")}> {darkMode ? "Modo claro" : "Modo oscuro"}
+                </button>
+
                 <button onClick={() => navigate("/horas")} style={btnStyle("#dc2626", "#fff")}>
                     Ir a Registro Horario
                 </button>
