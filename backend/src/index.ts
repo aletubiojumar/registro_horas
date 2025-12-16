@@ -40,7 +40,6 @@ import {
   deleteCalendarEventById,
   pool
 } from "./db";
-import fs from "fs";
 import path from "path";
 
 // -------------------------
@@ -2168,33 +2167,25 @@ app.get("/", (_req, res) => {
   });
 });
 
+// --- Servir frontend estático (Vite build) ---
+const publicPath = path.join(__dirname, "public");
+
+// Servir archivos estáticos (JS, CSS, imágenes…)
+// app.use(express.static(publicPath));
+
+// Para SPA: cualquier ruta no-API devuelve index.html
+// app.get("*", (_req, res) => {
+//   res.sendFile(path.join(publicPath, "index.html"));
+// });
+
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "API endpoint not found" });
 });
 
-// --- Servir frontend estático (Vite build) ---
-const publicPath = path.join(__dirname, "..", "public");
-
-if (fs.existsSync(publicPath)) {
-  // Servir archivos estáticos (JS, CSS, imágenes…)
-  app.use(express.static(publicPath));
-
-  // Para SPA: cualquier ruta no-API devuelve index.html
-  app.get("*", (_req, res) => {
-    const indexFile = path.join(publicPath, "index.html");
-
-    res.sendFile(indexFile, (err) => {
-      if (err) {
-        console.error("Error enviando index.html", err);
-        res.status(500).json({ error: "No se pudo servir el frontend" });
-      }
-    });
-  });
-} else {
-  console.warn(
-    `⚠️  Frontend no encontrado en ${publicPath}. Solo se servirá la API.`
-  );
-}
+// Si llega cualquier otra cosa (no /api), responde algo simple
+app.all("*", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
 
 // -------------------------
 // Arranque del servidor (UN SOLO LISTEN)
