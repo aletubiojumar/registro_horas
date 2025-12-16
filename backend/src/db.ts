@@ -6,69 +6,36 @@ import bcrypt from "bcryptjs";
 // ==============================
 // Reemplaza la función createPoolFromSecret en db.ts
 
-function createPoolFromSecret(): Pool {
-  // Primero intenta con variables individuales (Elastic Beanstalk con Secrets Manager)
-  const dbHost = process.env.DB_HOST;
-  const dbUser = process.env.DB_USER;
-  const dbPassword = process.env.DB_PASSWORD;
-  const dbPort = process.env.DB_PORT;
-  const dbName = process.env.DB_NAME;
+import { getDbSecret } from "./aws/getDbSecret";
 
-  console.log("🔎 ENV CHECK", {
-    DB_HOST: process.env.DB_HOST,
-    DB_USER: process.env.DB_USER,
-    DB_PASSWORD_DEFINED: !!process.env.DB_PASSWORD,
-    DB_PASSWORD_LENGTH: process.env.DB_PASSWORD?.length,
+let pool: Pool;
+
+export async function initDb() {
+  const secret = await getDbSecret();
+
+  console.log("✅ Conectando a RDS vía Secrets Manager", {
+    host: secret.host,
+    user: secret.username,
+    database: secret.dbname,
   });
 
-
-  if (dbHost && dbUser && dbPassword) {
-    console.log("✅ Conectando a RDS con variables individuales");
-    console.log("📊 DB Config:", {
-      host: dbHost,
-      port: dbPort || 5432,
-      user: dbUser,
-      database: dbName || "registrohorasdb",  // ← CAMBIO AQUÍ
-      ssl: true
-    });
-    
-    return new Pool({
-      host: dbHost,
-      port: Number(dbPort || 5432),
-      user: dbUser,
-      password: dbPassword,
-      database: dbName || "registrohorasdb",  // ← CAMBIO AQUÍ
-      ssl: { rejectUnauthorized: false },
-    });
-  }
-
-  // Fallback: intenta con DB_SECRET_JSON (para compatibilidad)
-  const secretJson = process.env.DB_SECRET_JSON;
-  if (secretJson) {
-    console.log("✅ Conectando a RDS con DB_SECRET_JSON");
-    try {
-      const secret = JSON.parse(secretJson);
-      
-      return new Pool({
-        host: secret.host || secret.DB_HOST,
-        port: Number(secret.port || secret.DB_PORT || 5432),
-        user: secret.username || secret.user || secret.DB_USER,
-        password: secret.password || secret.DB_PASSWORD,
-        database: secret.dbname || secret.database || secret.DB_NAME || "registrohorasdb",  // ← CAMBIO AQUÍ
-        ssl: { rejectUnauthorized: false },
-      });
-    } catch (err) {
-      throw new Error(
-        "Failed to parse DB_SECRET_JSON: " + (err as Error).message
-      );
-    }
-  }
-
-  // Si no hay ninguna configuración disponible
-  throw new Error(
-    "Database configuration not found. Set DB_HOST, DB_USER, DB_PASSWORD or DB_SECRET_JSON"
-  );
+  pool = new Pool({
+    host: secret.host,
+    port: secret.port ?? 5432,
+    user: secret.username,
+    password: secret.password,
+    database: secret.dbname,
+    ssl: { rejectUnauthorized: false },
+  });
 }
+
+export function getPool(): Pool {
+  if (!pool) {
+    throw new Error("Pool no inicializado. Llama antes a initDb()");
+  }
+  return pool;
+}
+
 
 // export const pool = createPoolFromSecret();
 
@@ -79,7 +46,6 @@ function createPoolFromSecret(): Pool {
 //const isProduction = process.env.NODE_ENV === 'production';
 
 // En db.ts, dentro de la conexión del Pool
-export const pool = createPoolFromSecret();
 
 // import { Pool } from "pg";
 // import bcrypt from "bcryptjs";
