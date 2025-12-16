@@ -2171,11 +2171,20 @@ app.get("/", (_req, res) => {
 const publicPath = path.join(__dirname, "public");
 
 // Servir archivos estáticos (JS, CSS, imágenes…)
-app.use(express.static(publicPath));
+// app.use(express.static(publicPath));
 
 // Para SPA: cualquier ruta no-API devuelve index.html
-app.get("*", (_req, res) => {
-  res.sendFile(path.join(publicPath, "index.html"));
+// app.get("*", (_req, res) => {
+//   res.sendFile(path.join(publicPath, "index.html"));
+// });
+
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "API endpoint not found" });
+});
+
+// Si llega cualquier otra cosa (no /api), responde algo simple
+app.all("*", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
 });
 
 // -------------------------
