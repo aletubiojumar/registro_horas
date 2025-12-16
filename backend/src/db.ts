@@ -14,6 +14,14 @@ function createPoolFromSecret(): Pool {
   const dbPort = process.env.DB_PORT;
   const dbName = process.env.DB_NAME;
 
+  console.log("🔎 ENV CHECK", {
+    DB_HOST: process.env.DB_HOST,
+    DB_USER: process.env.DB_USER,
+    DB_PASSWORD_DEFINED: !!process.env.DB_PASSWORD,
+    DB_PASSWORD_LENGTH: process.env.DB_PASSWORD?.length,
+  });
+
+
   if (dbHost && dbUser && dbPassword) {
     console.log("✅ Conectando a RDS con variables individuales");
     console.log("📊 DB Config:", {
