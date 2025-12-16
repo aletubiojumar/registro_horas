@@ -1,11 +1,5 @@
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
-
-// ==============================
-// Conexión a Postgres usando Secrets Manager
-// ==============================
-// Reemplaza la función createPoolFromSecret en db.ts
-
 import { getDbSecret } from "./aws/getDbSecret";
 
 let pool: Pool;
@@ -30,33 +24,9 @@ export async function initDb() {
 }
 
 export function getPool(): Pool {
-  if (!pool) {
-    throw new Error("Pool no inicializado. Llama antes a initDb()");
-  }
+  if (!pool) throw new Error("Pool no inicializado. Llama antes a initDb()");
   return pool;
 }
-
-
-// export const pool = createPoolFromSecret();
-
-// // ==============================
-// // Conexión a Postgres
-// // ==============================
-
-//const isProduction = process.env.NODE_ENV === 'production';
-
-// En db.ts, dentro de la conexión del Pool
-
-// import { Pool } from "pg";
-// import bcrypt from "bcryptjs";
-
-// const DATABASE_URL =
-//   process.env.DATABASE_URL ||
-//   "postgres://appuser:app_password@localhost:5432/registro_horas";
-
-// export const pool = new Pool({
-//   connectionString: DATABASE_URL,
-// });
 
 // ==============================
 // Tipos
@@ -81,7 +51,6 @@ export interface DbUser {
   updated_at: Date;
 }
 
-// ---- Tipos para horas ----
 export interface DbDayForHours {
   day: number;
   morningIn?: string;
@@ -104,7 +73,6 @@ export interface DbMonthHoursForApi {
 // ==============================
 // CALENDARIO EN BD
 // ==============================
-
 export interface DbCalendarEvent {
   id: string;
   owner_id: string;
@@ -116,15 +84,14 @@ export interface DbCalendarEvent {
   medical_file: string | null;
 }
 
-// ✅ FUNCIÓN CORREGIDA - getVisibleEventsForUser
 export async function getVisibleEventsForUser(userId: string): Promise<DbCalendarEvent[]> {
-  const { rows } = await pool.query(
+  const { rows } = await getPool().query(
     `
     SELECT 
       id,
       owner_id,
       type,
-      date::text as date,  -- ⬅️ Asegura que date sea string YYYY-MM-DD
+      date::text as date,
       status,
       visibility,
       viewers,
@@ -138,18 +105,17 @@ export async function getVisibleEventsForUser(userId: string): Promise<DbCalenda
     `,
     [userId]
   );
-  return rows; // ⬅️ NO OLVIDES EL RETURN
+  return rows;
 }
 
-// ✅ FUNCIÓN CORREGIDA - listEventsForUser
 export async function listEventsForUser(userId: string): Promise<DbCalendarEvent[]> {
-  const { rows } = await pool.query(
+  const { rows } = await getPool().query(
     `
     SELECT 
       id,
       owner_id,
       type,
-      date::text as date,  -- ⬅️ Asegura que date sea string YYYY-MM-DD
+      date::text as date,
       status,
       visibility,
       viewers,
@@ -160,7 +126,7 @@ export async function listEventsForUser(userId: string): Promise<DbCalendarEvent
     `,
     [userId]
   );
-  return rows; // ⬅️ NO OLVIDES EL RETURN
+  return rows;
 }
 
 export async function createCalendarEvent(input: {
@@ -172,7 +138,7 @@ export async function createCalendarEvent(input: {
   status?: string | null;
   medicalFile?: string | null;
 }): Promise<DbCalendarEvent> {
-  const { rows } = await pool.query(
+  const { rows } = await getPool().query(
     `
     INSERT INTO calendar_events (
         owner_id, type, date, visibility, viewers, status, medical_file
@@ -180,7 +146,6 @@ export async function createCalendarEvent(input: {
     VALUES ($1,$2,$3,$4,$5,$6,$7)
     RETURNING id, owner_id, type, date::text as date, status, visibility, viewers, medical_file
     `,
-    //                            ^^^^^^^^^^^^^^^^^^^ IMPORTANTE: debe tener ::text
     [
       input.ownerId,
       input.type,
@@ -195,8 +160,8 @@ export async function createCalendarEvent(input: {
   return rows[0];
 }
 
-export async function updateEventStatus(id: string, status: 'approved' | 'pending' | null) {
-  await pool.query(
+export async function updateEventStatus(id: string, status: "approved" | "pending" | null) {
+  await getPool().query(
     `
     UPDATE calendar_events
     SET status = $1, updated_at = NOW()
@@ -206,11 +171,8 @@ export async function updateEventStatus(id: string, status: 'approved' | 'pendin
   );
 }
 
-export async function doesUserHaveVacationOnDate(
-  userId: string,
-  date: string
-): Promise<boolean> {
-  const { rows } = await pool.query(
+export async function doesUserHaveVacationOnDate(userId: string, date: string): Promise<boolean> {
+  const { rows } = await getPool().query(
     `
     SELECT 1
     FROM calendar_events
@@ -223,11 +185,11 @@ export async function doesUserHaveVacationOnDate(
 }
 
 export async function deleteVacationById(id: string) {
-  await pool.query(`DELETE FROM calendar_events WHERE id = $1`, [id]);
+  await getPool().query(`DELETE FROM calendar_events WHERE id = $1`, [id]);
 }
 
 export async function countApprovedVacationsForUser(userId: string): Promise<number> {
-  const { rows } = await pool.query(
+  const { rows } = await getPool().query(
     `
     SELECT COUNT(*)::int AS total
     FROM calendar_events
@@ -247,22 +209,15 @@ export async function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, SALT_ROUNDS);
 }
 
-export async function comparePassword(
-  plain: string,
-  hash: string
-): Promise<boolean> {
+export async function comparePassword(plain: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plain, hash);
 }
 
 // ==============================
 // Consultas de usuario
 // ==============================
-
-// 1) Buscar por username (login)
-export async function getUserByUsername(
-  username: string
-): Promise<DbUser | null> {
-  const { rows } = await pool.query<DbUser>(
+export async function getUserByUsername(username: string): Promise<DbUser | null> {
+  const { rows } = await getPool().query<DbUser>(
     `
     SELECT *
     FROM users
@@ -274,9 +229,8 @@ export async function getUserByUsername(
   return rows[0] || null;
 }
 
-// 2) Buscar por id
 export async function getUserById(id: string): Promise<DbUser | null> {
-  const { rows } = await pool.query<DbUser>(
+  const { rows } = await getPool().query<DbUser>(
     `
     SELECT *
     FROM users
@@ -288,9 +242,8 @@ export async function getUserById(id: string): Promise<DbUser | null> {
   return rows[0] || null;
 }
 
-// 3) Listar usuarios (admin)
 export async function listUsers(): Promise<DbUser[]> {
-  const { rows } = await pool.query<DbUser>(
+  const { rows } = await getPool().query<DbUser>(
     `
     SELECT *
     FROM users
@@ -300,7 +253,6 @@ export async function listUsers(): Promise<DbUser[]> {
   return rows;
 }
 
-// 4) Crear usuario (admin)
 export async function createUser(input: {
   username: string;
   full_name: string;
@@ -317,7 +269,7 @@ export async function createUser(input: {
 }): Promise<DbUser> {
   const password_hash = await hashPassword(input.password);
 
-  const { rows } = await pool.query<DbUser>(
+  const { rows } = await getPool().query<DbUser>(
     `
     INSERT INTO users (
       username,
@@ -363,7 +315,6 @@ export async function createUser(input: {
   return rows[0];
 }
 
-// 5) Actualizar usuario (admin)
 export async function updateUser(
   id: string,
   fields: Partial<{
@@ -394,31 +345,23 @@ export async function updateUser(
 
   if (fields.username !== undefined) push("username", fields.username);
   if (fields.full_name !== undefined) push("full_name", fields.full_name);
-  if (fields.vacation_days_per_year !== undefined)
-    push("vacation_days_per_year", fields.vacation_days_per_year);
+  if (fields.vacation_days_per_year !== undefined) push("vacation_days_per_year", fields.vacation_days_per_year);
   if (fields.work_center !== undefined) push("work_center", fields.work_center);
   if (fields.company_cif !== undefined) push("company_cif", fields.company_cif);
   if (fields.company_ccc !== undefined) push("company_ccc", fields.company_ccc);
-  if (fields.worker_last_name !== undefined)
-    push("worker_last_name", fields.worker_last_name);
-  if (fields.worker_first_name !== undefined)
-    push("worker_first_name", fields.worker_first_name);
+  if (fields.worker_last_name !== undefined) push("worker_last_name", fields.worker_last_name);
+  if (fields.worker_first_name !== undefined) push("worker_first_name", fields.worker_first_name);
   if (fields.worker_nif !== undefined) push("worker_nif", fields.worker_nif);
-  if (fields.worker_ss_number !== undefined)
-    push("worker_ss_number", fields.worker_ss_number);
+  if (fields.worker_ss_number !== undefined) push("worker_ss_number", fields.worker_ss_number);
   if (fields.is_active !== undefined) push("is_active", fields.is_active);
-  if (fields.avatar_data_url !== undefined)
-    push("avatar_data_url", fields.avatar_data_url);
+  if (fields.avatar_data_url !== undefined) push("avatar_data_url", fields.avatar_data_url);
 
   if (fields.password !== undefined && fields.password.trim() !== "") {
     const newHash = await hashPassword(fields.password);
     push("password_hash", newHash);
   }
 
-  if (setParts.length === 0) {
-    const u = await getUserById(id);
-    return u;
-  }
+  if (setParts.length === 0) return getUserById(id);
 
   setParts.push(`updated_at = NOW()`);
 
@@ -430,13 +373,12 @@ export async function updateUser(
   `;
   values.push(id);
 
-  const { rows } = await pool.query<DbUser>(query, values);
+  const { rows } = await getPool().query<DbUser>(query, values);
   return rows[0] || null;
 }
 
-// 6) Activar/desactivar usuario
 export async function setUserActive(id: string, active: boolean): Promise<void> {
-  await pool.query(
+  await getPool().query(
     `
     UPDATE users
     SET is_active = $1, updated_at = NOW()
@@ -446,12 +388,10 @@ export async function setUserActive(id: string, active: boolean): Promise<void> 
   );
 }
 
-// 7) Borrar usuario
 export async function deleteUser(id: string): Promise<void> {
-  await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
+  await getPool().query(`DELETE FROM users WHERE id = $1`, [id]);
 }
 
-// 8) Contar admins activos (para reglas de negocio)
 export async function countActiveAdmins(excludeId?: string): Promise<number> {
   let query = `
     SELECT COUNT(*)::int AS count
@@ -465,13 +405,10 @@ export async function countActiveAdmins(excludeId?: string): Promise<number> {
     params.push(excludeId);
   }
 
-  const { rows } = await pool.query<{ count: number }>(query, params);
+  const { rows } = await getPool().query<{ count: number }>(query, params);
   return rows[0]?.count ?? 0;
 }
 
-// ==============================
-// DEBUG helpers (opcional)
-// ==============================
 export async function dbListUsers(): Promise<DbUser[]> {
   return listUsers();
 }
@@ -487,22 +424,15 @@ export async function dbCreateDemoUser(): Promise<DbUser> {
 }
 
 // ==============================
-// HORAS: lectura/escritura en BD
+// HORAS
 // ==============================
-
 function mapTimeToHHMM(value: string | null): string | undefined {
   if (!value) return undefined;
-  // pg suele devolver "HH:MM:SS" → nos quedamos con "HH:MM"
   return value.slice(0, 5);
 }
 
-// Leer horas de un usuario para un mes
-export async function getMonthHoursForUser(
-  userId: string,
-  year: number,
-  month: number
-): Promise<DbMonthHoursForApi | null> {
-  const { rows: monthRows } = await pool.query(
+export async function getMonthHoursForUser(userId: string, year: number, month: number): Promise<DbMonthHoursForApi | null> {
+  const { rows: monthRows } = await getPool().query(
     `
     SELECT id, signature_data_url
     FROM hours_months
@@ -517,7 +447,7 @@ export async function getMonthHoursForUser(
   const monthId: string = monthRows[0].id;
   const signatureDataUrl: string | null = monthRows[0].signature_data_url;
 
-  const { rows: dayRows } = await pool.query(
+  const { rows: dayRows } = await getPool().query(
     `
     SELECT
       day,
@@ -546,16 +476,9 @@ export async function getMonthHoursForUser(
     hasSignature: Boolean(r.has_signature),
   }));
 
-  return {
-    userId,
-    year,
-    month,
-    signatureDataUrl,
-    days,
-  };
+  return { userId, year, month, signatureDataUrl, days };
 }
 
-// Datos que esperamos recibir ya calculados desde el endpoint
 export interface UpsertDayInput {
   day: number;
   morningIn?: string;
@@ -567,7 +490,6 @@ export interface UpsertDayInput {
   hasSignature: boolean;
 }
 
-// Guardar/actualizar horas de un usuario para un mes
 export async function upsertMonthHoursForUser(
   userId: string,
   year: number,
@@ -575,12 +497,11 @@ export async function upsertMonthHoursForUser(
   signatureDataUrl: string | null,
   days: UpsertDayInput[]
 ): Promise<void> {
-  const client = await pool.connect();
+  const client = await getPool().connect();
 
   try {
     await client.query("BEGIN");
 
-    // Buscar si ya existe el mes
     const { rows: monthRows } = await client.query(
       `
       SELECT id
@@ -604,10 +525,7 @@ export async function upsertMonthHoursForUser(
         [signatureDataUrl, monthId]
       );
 
-      // Borramos los días anteriores y los volvemos a insertar
-      await client.query(`DELETE FROM hours_days WHERE month_id = $1`, [
-        monthId,
-      ]);
+      await client.query(`DELETE FROM hours_days WHERE month_id = $1`, [monthId]);
     } else {
       const { rows: inserted } = await client.query(
         `
@@ -620,7 +538,6 @@ export async function upsertMonthHoursForUser(
       monthId = inserted[0].id;
     }
 
-    // Insertar días
     for (const d of days) {
       await client.query(
         `
@@ -661,9 +578,8 @@ export async function upsertMonthHoursForUser(
 }
 
 // ==============================
-// DOCUMENTOS EN BD
+// DOCUMENTOS
 // ==============================
-
 export interface DbPayroll {
   id: string;
   owner_id: string;
@@ -690,10 +606,8 @@ export interface DbCitation {
   created_at: Date;
 }
 
-// ---- NÓMINAS ----
-
 export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]> {
-  const { rows } = await pool.query<DbPayroll>(
+  const { rows } = await getPool().query<DbPayroll>(
     `
     SELECT *
     FROM payrolls
@@ -705,13 +619,8 @@ export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]>
   return rows;
 }
 
-export async function createPayrollRecord(params: {
-  ownerId: string;
-  year: number;
-  month: string; // "01".."12"
-  fileName: string;
-}): Promise<DbPayroll> {
-  const { rows } = await pool.query<DbPayroll>(
+export async function createPayrollRecord(params: { ownerId: string; year: number; month: string; fileName: string }): Promise<DbPayroll> {
+  const { rows } = await getPool().query<DbPayroll>(
     `
     INSERT INTO payrolls (owner_id, year, month, file_name)
     VALUES ($1, $2, $3, $4)
@@ -723,7 +632,7 @@ export async function createPayrollRecord(params: {
 }
 
 export async function getPayrollById(id: string): Promise<DbPayroll | null> {
-  const { rows } = await pool.query<DbPayroll>(
+  const { rows } = await getPool().query<DbPayroll>(
     `
     SELECT *
     FROM payrolls
@@ -736,13 +645,11 @@ export async function getPayrollById(id: string): Promise<DbPayroll | null> {
 }
 
 export async function deletePayrollRecord(id: string): Promise<void> {
-  await pool.query(`DELETE FROM payrolls WHERE id = $1`, [id]);
+  await getPool().query(`DELETE FROM payrolls WHERE id = $1`, [id]);
 }
 
-// ---- CONTRATOS ----
-
 export async function getContractForOwner(ownerId: string): Promise<DbContract | null> {
-  const { rows } = await pool.query<DbContract>(
+  const { rows } = await getPool().query<DbContract>(
     `
     SELECT *
     FROM contracts
@@ -754,11 +661,8 @@ export async function getContractForOwner(ownerId: string): Promise<DbContract |
   return rows[0] || null;
 }
 
-export async function upsertContractRecord(params: {
-  ownerId: string;
-  fileName: string;
-}): Promise<DbContract> {
-  const { rows } = await pool.query<DbContract>(
+export async function upsertContractRecord(params: { ownerId: string; fileName: string }): Promise<DbContract> {
+  const { rows } = await getPool().query<DbContract>(
     `
     INSERT INTO contracts (owner_id, file_name)
     VALUES ($1, $2)
@@ -774,13 +678,11 @@ export async function upsertContractRecord(params: {
 }
 
 export async function deleteContractRecord(ownerId: string): Promise<void> {
-  await pool.query(`DELETE FROM contracts WHERE owner_id = $1`, [ownerId]);
+  await getPool().query(`DELETE FROM contracts WHERE owner_id = $1`, [ownerId]);
 }
 
-// ---- CITACIONES ----
-
 export async function listCitationsForUser(ownerId: string): Promise<DbCitation[]> {
-  const { rows } = await pool.query<DbCitation>(
+  const { rows } = await getPool().query<DbCitation>(
     `
     SELECT *
     FROM citations
@@ -792,13 +694,8 @@ export async function listCitationsForUser(ownerId: string): Promise<DbCitation[
   return rows;
 }
 
-export async function createCitationRecord(params: {
-  ownerId: string;
-  title: string;
-  issuedAt: string; // "YYYY-MM-DD"
-  fileName: string;
-}): Promise<DbCitation> {
-  const { rows } = await pool.query<DbCitation>(
+export async function createCitationRecord(params: { ownerId: string; title: string; issuedAt: string; fileName: string }): Promise<DbCitation> {
+  const { rows } = await getPool().query<DbCitation>(
     `
     INSERT INTO citations (owner_id, title, issued_at, file_name)
     VALUES ($1, $2, $3, $4)
@@ -810,7 +707,7 @@ export async function createCitationRecord(params: {
 }
 
 export async function getCitationById(id: string): Promise<DbCitation | null> {
-  const { rows } = await pool.query<DbCitation>(
+  const { rows } = await getPool().query<DbCitation>(
     `
     SELECT *
     FROM citations
@@ -823,11 +720,11 @@ export async function getCitationById(id: string): Promise<DbCitation | null> {
 }
 
 export async function deleteCitationRecord(id: string): Promise<void> {
-  await pool.query(`DELETE FROM citations WHERE id = $1`, [id]);
+  await getPool().query(`DELETE FROM citations WHERE id = $1`, [id]);
 }
 
 export async function getCalendarEventById(id: string): Promise<DbCalendarEvent | null> {
-  const { rows } = await pool.query<DbCalendarEvent>(
+  const { rows } = await getPool().query<DbCalendarEvent>(
     `
     SELECT *
     FROM calendar_events
@@ -840,17 +737,11 @@ export async function getCalendarEventById(id: string): Promise<DbCalendarEvent 
 }
 
 export async function deleteCalendarEventById(id: string): Promise<void> {
-  await pool.query(
-    `
-    DELETE FROM calendar_events
-    WHERE id = $1
-    `,
-    [id]
-  );
+  await getPool().query(`DELETE FROM calendar_events WHERE id = $1`, [id]);
 }
 
 export async function countAllVacationsForUser(userId: string): Promise<number> {
-  const { rows } = await pool.query(
+  const { rows } = await getPool().query(
     `
     SELECT COUNT(*)::int AS total
     FROM calendar_events
@@ -860,5 +751,3 @@ export async function countAllVacationsForUser(userId: string): Promise<number> 
   );
   return rows[0]?.total ?? 0;
 }
-
-
