@@ -305,17 +305,25 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
       role: user.role,
     };
 
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
+    const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: "15m" });
+    const refreshToken = jwt.sign(
+      { ...payload, type: 'refresh' }, 
+      process.env.JWT_REFRESH_SECRET || JWT_SECRET + '_refresh',
+      { expiresIn: "7d" }
+    );
 
     res.json({
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        fullName: user.full_name,
-        role: user.role,
-      },
-    });
+    accessToken,
+    refreshToken,
+    expiresIn: "15m",
+    user: {
+      id: user.id,
+      username: user.username,
+      fullName: user.full_name,
+      role: user.role,
+    },
+  });
+
   } catch (err) {
     console.error("Error catastrófico en login:", err);
     res.status(500).json({
@@ -2151,6 +2159,35 @@ app.delete(
     }
   }
 );
+
+// POST /api/auth/refresh - Refrescar access token
+app.post("/api/auth/refresh", async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) return res.status(401).json({ error: "Refresh token required" });
+
+    const decoded = jwt.verify(
+      refreshToken, 
+      process.env.JWT_REFRESH_SECRET || JWT_SECRET + '_refresh'
+    ) as any;
+
+    const dbUser = await getUserById(decoded.userId);
+    if (!dbUser?.is_active) {
+      return res.status(403).json({ error: "User not found or inactive" });
+    }
+
+    const newAccessToken = jwt.sign(
+      { userId: dbUser.id, username: dbUser.username, role: dbUser.role },
+      JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    res.json({ accessToken: newAccessToken, expiresIn: "15m" });
+  } catch (err) {
+    console.error("Refresh error:", err);
+    res.status(403).json({ error: "Invalid refresh token" });
+  }
+});
 
 // ⬆️ ARRIBA van los endpoints de PeritoIA
 // ⬇️ ABAJO va el frontend estático

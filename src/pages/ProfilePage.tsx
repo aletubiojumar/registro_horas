@@ -3,14 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { applyTheme, readTheme } from "../theme";
 
-const [darkMode, setDarkMode] = useState(readTheme());
-
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
 
 const ProfilePage: React.FC = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
-
+    const [darkMode, setDarkMode] = useState(() => readTheme());
     const [profile, setProfile] = useState<{
         fullName: string;
         username: string;

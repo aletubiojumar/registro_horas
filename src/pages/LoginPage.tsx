@@ -147,14 +147,22 @@ const LoginPage: React.FC = () => {
 
       const data = await res.json();
 
-      // data = { token, user: { id, username, fullName, role } }
-      login({
-        id: data.user.id,
-        username: data.user.username,
-        fullName: data.user.fullName,
-        role: data.user.role,
-        token: data.token,
-      });
+      // En handleSubmit, después de recibir data:
+      const { accessToken, refreshToken, expiresIn, user: userData } = await res.json();
+
+      // Guarda tokens
+      localStorage.setItem('access_token', accessToken);
+      localStorage.setItem('refresh_token', refreshToken);
+
+      login(
+        { accessToken, refreshToken, expiresIn },
+        {
+          id: userData.id,
+          username: userData.username,
+          fullName: userData.fullName,
+          role: userData.role,
+        }
+      );
 
       console.log("Rol recibido:", data.user.role);
       if (data.user.role === "admin") {
