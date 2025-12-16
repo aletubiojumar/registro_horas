@@ -12,6 +12,8 @@ const SECRET_ID =
 const client = new SecretsManagerClient({ region: REGION });
 
 export async function getDbSecret() {
+  console.log("🔐 DB_SECRET_ID usado:", SECRET_ID, "REGION:", REGION);
+
   const command = new GetSecretValueCommand({ SecretId: SECRET_ID });
   const response = await client.send(command);
 
