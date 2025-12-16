@@ -130,58 +130,50 @@ const LoginPage: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
 
+      // ✅ Leer el body una sola vez
+      const data = await res.json().catch(() => null);
+
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
         const message =
-          err?.error || "No se ha podido iniciar sesión. Revisa las credenciales.";
+          data?.error || "No se ha podido iniciar sesión. Revisa las credenciales.";
         setErrorMsg(message);
         setIsSubmitting(false);
         return;
       }
 
-      const data = await res.json();
-
-      // En handleSubmit, después de recibir data:
-      const { accessToken, refreshToken, expiresIn, user: userData } = await res.json();
+      const { accessToken, refreshToken, expiresIn, user: userData } = data;
 
       // Guarda tokens
-      localStorage.setItem('access_token', accessToken);
-      localStorage.setItem('refresh_token', refreshToken);
+      localStorage.setItem("access_token", accessToken);
+      localStorage.setItem("refresh_token", refreshToken);
 
       login(
         { accessToken, refreshToken, expiresIn },
         {
           id: userData.id,
           username: userData.username,
-          fullName: userData.fullName,
+          fullName: userData.fullName, // (si en backend es fullName)
           role: userData.role,
         }
       );
 
-      console.log("Rol recibido:", data.user.role);
-      if (data.user.role === "admin") {
-        console.log("Redirigiendo a /admin");
+      if (userData.role === "admin") {
         navigate("/admin", { replace: true });
       } else {
-        console.log("Redirigiendo a /perfil");
         navigate("/perfil", { replace: true });
       }
 
-      if (rememberUser) {
-        localStorage.setItem("rememberedUser", username);
-      } else {
-        localStorage.removeItem("rememberedUser");
-      }
+      if (rememberUser) localStorage.setItem("rememberedUser", username);
+      else localStorage.removeItem("rememberedUser");
 
     } catch (err) {
       console.error("Error en login:", err);
       setErrorMsg("Error de conexión con el servidor.");
+    } finally {
       setIsSubmitting(false);
     }
   };
