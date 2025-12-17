@@ -228,13 +228,14 @@ const AdminPage: React.FC = () => {
         style={{
           ...themeToggleStyle(darkMode),
           position: "fixed",
-          top: 16,
+          bottom: 16,
           left: 16,
           zIndex: 9999,
         }}
       >
         {darkMode ? <IconSun /> : <IconMoon />}
       </button>
+
 
       {/* Panel izquierdo */}
       <div
