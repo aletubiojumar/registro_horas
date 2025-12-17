@@ -405,10 +405,10 @@ app.post("/api/auth/refresh", async (req: Request, res: Response) => {
     const newAccessToken = jwt.sign(
       { userId: dbUser.id, username: dbUser.username, role: dbUser.role },
       JWT_SECRET,
-      { expiresIn: "15m" }
+      { expiresIn: "7d" }
     );
 
-    res.json({ accessToken: newAccessToken, expiresIn: "15m" });
+    res.json({ accessToken: newAccessToken, expiresIn: "7d" });
   } catch (err) {
     console.error("Refresh error:", err);
     res.status(403).json({ error: "Invalid refresh token" });
