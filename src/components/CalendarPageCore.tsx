@@ -1,12 +1,15 @@
 import { useState } from "react";
 import type { CalendarEvent } from "../pages/CalendarPage";
 
-const colorByType: Record<any, string> = {
-  visita: "#dcfce7",
-  juicio: "#e9d5ff",
-  vacaciones: "#fed7aa",
-  "cita médica": "#fecdd3",
-  otros: "#e5e7eb",
+type Theme = {
+  darkMode: boolean;
+  border: string;
+  text: string;
+  muted: string;
+  cardBg: string;
+  inputBg: string;
+  inputBorder: string;
+  primary: string;
 };
 
 const isWeekend = (date: string): boolean => {
@@ -25,20 +28,87 @@ interface Props {
   events: CalendarEvent[];
   readOnly?: boolean;
   onApproveVacation?: (id: string, approve: boolean) => void;
+  theme?: Theme;
 }
 
 const CalendarPageCore: React.FC<Props> = ({
   events,
   readOnly = false,
   onApproveVacation,
+  theme,
 }) => {
   const [month, setMonth] = useState(new Date().getMonth());
   const [year, setYear] = useState(new Date().getFullYear());
+
+  const dark = theme?.darkMode ?? false;
+
+  // Paleta interna (si no pasas theme, usa claro por defecto)
+  const palette = {
+    border: theme?.border ?? "#e5e7eb",
+    text: theme?.text ?? "#111827",
+    muted: theme?.muted ?? "#4b5563",
+    cardBg: theme?.cardBg ?? "#ffffff",
+    inputBg: theme?.inputBg ?? "#ffffff",
+    inputBorder: theme?.inputBorder ?? "#d1d5db",
+    primary: theme?.primary ?? "#2563eb",
+
+    // Colores específicos del calendario
+    dayHeaderText: dark ? "#94a3b8" : "#4b5563",
+
+    cellBorder: dark ? (theme?.border ?? "#334155") : "#e5e7eb",
+    cellText: dark ? "#e5e7eb" : "#111827",
+
+    // Fondo de celda según estado
+    bgDefault: dark ? "#0b1220" : "#ffffff",
+    bgFuture: dark ? "#0f172a" : "#e5e7eb",
+    bgWeekend: dark ? "#111827" : "#fef3c7",
+
+    bgVacApproved: dark ? "#0b3a6f" : "#bfdbfe",
+    bdVacApproved: dark ? "#2563eb" : "#60a5fa",
+
+    bgVacPending: dark ? "#4c2a06" : "#fed7aa",
+    bdVacPending: dark ? "#f59e0b" : "#fb923c",
+
+    // “Color por tipo” (en oscuro usamos versiones más profundas)
+    colorByType: ((): Record<any, string> => {
+      if (!dark) {
+        return {
+          visita: "#dcfce7",
+          juicio: "#e9d5ff",
+          vacaciones: "#fed7aa",
+          "cita médica": "#fecdd3",
+          otros: "#e5e7eb",
+        };
+      }
+      return {
+        visita: "#0f2a1a",
+        juicio: "#241338",
+        vacaciones: "#4c2a06",
+        "cita médica": "#3b0f18",
+        otros: "#0f172a",
+      };
+    })(),
+
+    // “pill” de evento dentro de una celda
+    pillBg: dark ? "#0f172a" : "#ffffff",
+    pillBorder: dark ? "#334155" : "#d1d5db",
+    pillText: dark ? "#e5e7eb" : "#111827",
+
+    // Botones aprobar/rechazar
+    okBg: dark ? "#0f2a1a" : "#dcfce7",
+    okBd: dark ? "#22c55e" : "#16a34a",
+    okTx: dark ? "#86efac" : "#166534",
+
+    noBg: dark ? "#3b0f18" : "#fee2e2",
+    noBd: dark ? "#ef4444" : "#dc2626",
+    noTx: dark ? "#fecaca" : "#b91c1c",
+  };
 
   const monthDays = Array.from(
     { length: new Date(year, month + 1, 0).getDate() },
     (_, i) => i + 1
   );
+
   const monthName = new Date(year, month).toLocaleDateString("es-ES", {
     month: "long",
     year: "numeric",
@@ -52,6 +122,7 @@ const CalendarPageCore: React.FC<Props> = ({
       setMonth((m) => m - 1);
     }
   };
+
   const handleNext = () => {
     if (month === 11) {
       setMonth(0);
@@ -61,8 +132,17 @@ const CalendarPageCore: React.FC<Props> = ({
     }
   };
 
+  const navBtnStyle: React.CSSProperties = {
+    padding: "0.2rem 0.5rem",
+    borderRadius: "0.25rem",
+    border: `1px solid ${palette.inputBorder}`,
+    backgroundColor: palette.inputBg,
+    color: palette.text,
+    cursor: "pointer",
+  };
+
   return (
-    <div>
+    <div style={{ color: palette.text }}>
       {/* Selector mes */}
       <div
         style={{
@@ -72,45 +152,27 @@ const CalendarPageCore: React.FC<Props> = ({
           marginBottom: "0.75rem",
         }}
       >
-        <button
-          onClick={handlePrev}
-          style={{
-            padding: "0.2rem 0.5rem",
-            borderRadius: "0.25rem",
-            border: "1px solid #d1d5db",
-            backgroundColor: "#fff",
-            cursor: "pointer",
-          }}
-        >
+        <button onClick={handlePrev} style={navBtnStyle}>
           ◀
         </button>
         <span style={{ fontWeight: 600, textTransform: "capitalize" }}>
           {monthName}
         </span>
-        <button
-          onClick={handleNext}
-          style={{
-            padding: "0.2rem 0.5rem",
-            borderRadius: "0.25rem",
-            border: "1px solid #d1d5db",
-            backgroundColor: "#fff",
-            cursor: "pointer",
-          }}
-        >
+        <button onClick={handleNext} style={navBtnStyle}>
           ▶
         </button>
       </div>
 
       {/* Leyenda */}
-      <div style={{ fontSize: "0.75rem", color: "#4b5563", marginBottom: "0.5rem" }}>
+      <div style={{ fontSize: "0.75rem", color: palette.muted, marginBottom: "0.5rem" }}>
         <div>
           <span
             style={{
               display: "inline-block",
               width: 12,
               height: 12,
-              backgroundColor: "#fef3c7",
-              border: "1px solid #e5e7eb",
+              backgroundColor: palette.bgWeekend,
+              border: `1px solid ${palette.cellBorder}`,
               marginRight: 4,
               verticalAlign: "middle",
             }}
@@ -123,8 +185,8 @@ const CalendarPageCore: React.FC<Props> = ({
               display: "inline-block",
               width: 12,
               height: 12,
-              backgroundColor: "#bfdbfe",
-              border: "1px solid #60a5fa",
+              backgroundColor: palette.bgVacApproved,
+              border: `1px solid ${palette.bdVacApproved}`,
               marginRight: 4,
               verticalAlign: "middle",
             }}
@@ -137,8 +199,8 @@ const CalendarPageCore: React.FC<Props> = ({
               display: "inline-block",
               width: 12,
               height: 12,
-              backgroundColor: "#fed7aa",
-              border: "1px solid #fb923c",
+              backgroundColor: palette.bgVacPending,
+              border: `1px solid ${palette.bdVacPending}`,
               marginRight: 4,
               verticalAlign: "middle",
             }}
@@ -162,7 +224,7 @@ const CalendarPageCore: React.FC<Props> = ({
             style={{
               fontWeight: 600,
               fontSize: "0.75rem",
-              color: "#4b5563",
+              color: palette.dayHeaderText,
               padding: "0.25rem",
             }}
           >
@@ -171,29 +233,37 @@ const CalendarPageCore: React.FC<Props> = ({
         ))}
 
         {monthDays.map((day) => {
-          const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(
+            day
+          ).padStart(2, "0")}`;
+
           const dayEvents = events.filter((e) => e.date === dateStr);
           const weekend = isWeekend(dateStr);
           const future = isFutureDay(dateStr);
 
-          const vacPending = dayEvents.some((e) => e.type === "vacaciones" && e.status === "pending");
-          const vacApproved = dayEvents.some((e) => e.type === "vacaciones" && e.status === "approved");
+          const vacPending = dayEvents.some(
+            (e) => e.type === "vacaciones" && e.status === "pending"
+          );
+          const vacApproved = dayEvents.some(
+            (e) => e.type === "vacaciones" && e.status === "approved"
+          );
 
-          let bg = "#fff";
-          if (vacApproved) bg = "#bfdbfe";
-          else if (vacPending) bg = "#fed7aa";
-          else if (weekend) bg = "#fef3c7";
+          let bg = palette.bgDefault;
+
+          if (vacApproved) bg = palette.bgVacApproved;
+          else if (vacPending) bg = palette.bgVacPending;
+          else if (weekend) bg = palette.bgWeekend;
           else {
             const types = dayEvents.map((e) => e.type) as any[];
-            if (types.length) bg = colorByType[types[0]];
-            else if (future) bg = "#e5e7eb";
+            if (types.length) bg = palette.colorByType[types[0]] ?? palette.bgDefault;
+            else if (future) bg = palette.bgFuture;
           }
 
           return (
             <div
               key={day}
               style={{
-                border: "1px solid #e5e7eb",
+                border: `1px solid ${palette.cellBorder}`,
                 borderRadius: "0.25rem",
                 padding: "0.35rem",
                 minHeight: 70,
@@ -202,9 +272,18 @@ const CalendarPageCore: React.FC<Props> = ({
                 flexDirection: "column",
               }}
             >
-              <div style={{ fontSize: "0.75rem", fontWeight: "bold", marginBottom: "0.25rem" }}>
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  fontWeight: "bold",
+                  marginBottom: "0.25rem",
+                  color: palette.cellText,
+                  opacity: future ? 0.8 : 1,
+                }}
+              >
                 {day}
               </div>
+
               {dayEvents.map((ev) => (
                 <div
                   key={ev.id}
@@ -212,9 +291,10 @@ const CalendarPageCore: React.FC<Props> = ({
                     fontSize: "0.65rem",
                     marginTop: "0.15rem",
                     padding: "0.1rem 0.3rem",
-                    border: "1px solid #d1d5db",
+                    border: `1px solid ${palette.pillBorder}`,
                     borderRadius: "0.25rem",
-                    background: "#ffffff",
+                    background: palette.pillBg,
+                    color: palette.pillText,
                     width: "100%",
                     textAlign: "left",
                   }}
@@ -223,6 +303,7 @@ const CalendarPageCore: React.FC<Props> = ({
                   {ev.type === "vacaciones" && ev.status === "pending" && (
                     <span title="Pendiente de aprobación"> ⏳</span>
                   )}
+
                   {ev.type === "vacaciones" &&
                     ev.status === "pending" &&
                     readOnly &&
@@ -235,9 +316,9 @@ const CalendarPageCore: React.FC<Props> = ({
                             fontSize: "0.6rem",
                             marginRight: "0.2rem",
                             borderRadius: "0.2rem",
-                            border: "1px solid #16a34a",
-                            backgroundColor: "#dcfce7",
-                            color: "#166534",
+                            border: `1px solid ${palette.okBd}`,
+                            backgroundColor: palette.okBg,
+                            color: palette.okTx,
                             cursor: "pointer",
                           }}
                         >
@@ -249,9 +330,9 @@ const CalendarPageCore: React.FC<Props> = ({
                             padding: "0.1rem 0.3rem",
                             fontSize: "0.6rem",
                             borderRadius: "0.2rem",
-                            border: "1px solid #dc2626",
-                            backgroundColor: "#fee2e2",
-                            color: "#b91c1c",
+                            border: `1px solid ${palette.noBd}`,
+                            backgroundColor: palette.noBg,
+                            color: palette.noTx,
                             cursor: "pointer",
                           }}
                         >
