@@ -301,7 +301,7 @@ const LoginPage = () => {
       </button>
 
       <div style={styles.cardStyle}>
-        <h1 style={styles.titleStyle}>Acceso al registro de jornada</h1>
+        <h1 style={styles.titleStyle}>Área personal</h1>
         <p style={styles.subtitleStyle}>
           Introduce tus credenciales corporativas para acceder.
         </p>

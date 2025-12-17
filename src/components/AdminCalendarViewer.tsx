@@ -67,11 +67,6 @@ const AdminCalendarViewer: React.FC<{
           onApproveVacation={handleApprove}
         />
       </div>
-
-      <p style={{ marginTop: "0.75rem", color: theme.muted, fontSize: "0.85rem" }}>
-        Si algunas celd: cas/colores del calendario siguen en blanco, es porque los pinta CalendarPageCore con colores fijos.
-        Para que el modo oscuro afecte a TODO, hay que adaptar CalendarPageCore también.
-      </p>
     </div>
   );
 };
