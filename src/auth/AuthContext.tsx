@@ -29,7 +29,7 @@ const AuthContext = createContext<AuthContextProps | undefined>(undefined);
 const STORAGE_KEY = "registro_horas_user";
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080"; // ✅ Cambiado a 8080
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api"; // ✅ Cambiado a 8080
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<LoggedUser | null>(null);
@@ -87,10 +87,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, { // ✅ Añadido /api
+        const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken })
+          body: JSON.stringify({ refreshToken }),
         });
 
         if (!res.ok) throw new Error('Refresh failed');
