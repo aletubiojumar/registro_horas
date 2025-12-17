@@ -19,6 +19,53 @@ type Profile = {
   avatarDataUrl?: string | null;
 };
 
+const IconMoon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M21 14.5A8.5 8.5 0 0 1 9.5 3a6.8 6.8 0 1 0 11.5 11.5Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const IconSun = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+    <circle
+      cx="12"
+      cy="12"
+      r="4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    />
+    <path
+      d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const themeToggleStyle = (dark: boolean): React.CSSProperties => ({
+  width: 40,
+  height: 40,
+  borderRadius: "999px",
+  border: "1px solid #d1d5db",
+  backgroundColor: dark ? "#111827" : "#ffffff",
+  color: dark ? "#f9fafb" : "#111827",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+});
+
 const ProfilePage: React.FC = () => {
   const { user, logout, fetchWithAuth } = useAuth();
   const navigate = useNavigate();
@@ -39,29 +86,26 @@ const ProfilePage: React.FC = () => {
         });
 
         if (r.status === 401) {
-          // Token inválido incluso tras refresh -> cerrar sesión
+          // Token inválido incluso tras refresh -> cerrar
           logout();
           navigate("/login", { replace: true });
           return;
         }
 
         if (!r.ok) {
-          throw new Error(`Error al cargar perfil (${r.status})`);
+          alert("No se pudo cargar el perfil");
+          return;
         }
 
         const data = (await r.json()) as Profile;
         if (!cancelled) setProfile(data);
-      } catch (err) {
-        console.error("ProfilePage error:", err);
-        if (!cancelled) {
-          alert("Error al cargar perfil");
-          setProfile(null);
-        }
+      } catch (e) {
+        console.error(e);
+        alert("Error cargando perfil");
       }
     };
 
-    void loadProfile();
-
+    loadProfile();
     return () => {
       cancelled = true;
     };
@@ -124,6 +168,27 @@ const ProfilePage: React.FC = () => {
     <div style={{ maxWidth: 720, margin: "2rem auto", padding: "0 1rem" }}>
       <h2>Área personal</h2>
 
+      {/* Toggle modo oscuro (fijo arriba a la izquierda) */}
+      <button
+        type="button"
+        onClick={() => {
+          const next = !darkMode;
+          setDarkMode(next);
+          applyTheme(next);
+        }}
+        aria-label={darkMode ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+        title={darkMode ? "Modo claro" : "Modo oscuro"}
+        style={{
+          ...themeToggleStyle(darkMode),
+          position: "fixed",
+          top: 16,
+          left: 16,
+          zIndex: 9999,
+        }}
+      >
+        {darkMode ? <IconSun /> : <IconMoon />}
+      </button>
+
       {/* Avatar */}
       <div style={{ textAlign: "center", marginBottom: "2rem" }}>
         <img
@@ -134,23 +199,21 @@ const ProfilePage: React.FC = () => {
         <br />
         <label
           style={{
-            marginTop: "0.5rem",
             display: "inline-block",
-            padding: "0.4rem 0.8rem",
-            fontSize: "0.8rem",
-            border: "1px solid #d1d5db",
+            marginTop: "0.75rem",
+            padding: "0.5rem 0.9rem",
             borderRadius: "0.35rem",
-            backgroundColor: "#fff",
+            border: "1px solid #d1d5db",
             cursor: uploading ? "not-allowed" : "pointer",
-            opacity: uploading ? 0.7 : 1,
+            opacity: uploading ? 0.6 : 1,
           }}
         >
-          {uploading ? "Subiendo…" : "Cambiar foto"}
-          <input type="file" accept="image/*" onChange={handleUploadAvatar} hidden disabled={uploading} />
+          {uploading ? "Subiendo..." : "Cambiar foto"}
+          <input type="file" accept="image/*" onChange={handleUploadAvatar} disabled={uploading} hidden />
         </label>
       </div>
 
-      {/* Datos de empresa */}
+      {/* Datos empresa */}
       <section style={{ border: "1px solid #e5e7eb", borderRadius: "0.5rem", padding: "1rem", marginBottom: "1.5rem" }}>
         <h3>Datos de la empresa</h3>
         {row("Centro de trabajo", profile.workCenter)}
@@ -172,17 +235,6 @@ const ProfilePage: React.FC = () => {
 
       {/* Botones */}
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-        <button
-          onClick={() => {
-            const next = !darkMode;
-            setDarkMode(next);
-            applyTheme(next);
-          }}
-          style={btnStyle(darkMode ? "#334155" : "#111827", "#fff")}
-        >
-          {darkMode ? "Modo claro" : "Modo oscuro"}
-        </button>
-
         <button onClick={() => navigate("/horas")} style={btnStyle("#dc2626", "#fff")}>
           Ir a Registro Horario
         </button>
