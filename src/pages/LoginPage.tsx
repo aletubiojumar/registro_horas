@@ -194,8 +194,8 @@ const LoginPage = () => {
 
     const themeBtnStyle: CSSProperties = {
       position: "fixed",
-      right: 16,
-      bottom: 16,
+      top: 16,
+      left: 16,
       width: 42,
       height: 42,
       borderRadius: 999,
@@ -211,6 +211,7 @@ const LoginPage = () => {
         : "0 10px 25px rgba(0,0,0,0.12)",
       zIndex: 9999,
     };
+
 
     return {
       containerStyle,
