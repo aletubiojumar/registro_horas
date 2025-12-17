@@ -347,6 +347,16 @@ const AdminPage: React.FC = () => {
               onSelect={setSelectedUser}
               onToggleActive={handleToggleActive}
               onDeleteUser={handleDeleteUser}
+              theme={{
+                darkMode,
+                border: colors.border,
+                text: colors.text,
+                muted: colors.muted,
+                cardBg: colors.cardBg,
+                primary: colors.primary,
+                dangerBg: colors.dangerBg,
+                dangerText: colors.dangerText,
+              }}
             />
           )}
         </div>

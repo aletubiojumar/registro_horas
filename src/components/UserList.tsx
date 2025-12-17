@@ -16,12 +16,24 @@ export interface AdminUser {
   workerSsNumber?: string;
 }
 
+type Theme = {
+  darkMode: boolean;
+  border: string;
+  text: string;
+  muted: string;
+  cardBg: string;
+  primary: string;
+  dangerBg: string;
+  dangerText: string;
+};
+
 interface UserListProps {
   users: AdminUser[];
   selectedUser: AdminUser | null;
   onSelect: (user: AdminUser) => void;
   onToggleActive: (user: AdminUser) => void;
   onDeleteUser: (user: AdminUser) => void;
+  theme: Theme;
 }
 
 const UserList: React.FC<UserListProps> = ({
@@ -30,93 +42,117 @@ const UserList: React.FC<UserListProps> = ({
   onSelect,
   onToggleActive,
   onDeleteUser,
+  theme,
 }) => {
   if (!users.length) {
-    return <p>No hay usuarios.</p>;
+    return <p style={{ color: theme.muted }}>No hay usuarios.</p>;
   }
 
+  const itemStyle = (selected: boolean): React.CSSProperties => ({
+    padding: "0.6rem 0.65rem",
+    borderRadius: "0.5rem",
+    border: selected
+      ? `1px solid ${theme.primary}`
+      : `1px solid ${theme.border}`,
+    backgroundColor: selected
+      ? theme.darkMode
+        ? "#0b3a6f" // azul oscuro elegante
+        : "#dbeafe"
+      : theme.cardBg,
+    color: theme.text,
+    transition: "background-color 0.15s ease, border-color 0.15s ease",
+  });
+
+  const actionBtn = (
+    bg: string,
+    border: string,
+    color: string
+  ): React.CSSProperties => ({
+    fontSize: "0.75rem",
+    padding: "0.2rem 0.45rem",
+    borderRadius: "0.3rem",
+    border: `1px solid ${border}`,
+    backgroundColor: bg,
+    color,
+    cursor: "pointer",
+  });
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-      {users.map((u) => (
-        <div
-          key={u.id}
-          style={{
-            padding: "0.4rem 0.5rem",
-            borderRadius: "0.375rem",
-            border:
-              selectedUser?.id === u.id
-                ? "1px solid #2563eb"
-                : "1px solid #e5e7eb",
-            backgroundColor:
-              selectedUser?.id === u.id ? "#dbeafe" : "#f9fafb",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => onSelect(u)}
-            style={{
-              all: "unset",
-              cursor: "pointer",
-              display: "block",
-              width: "100%",
-            }}
-          >
-            <div style={{ fontWeight: 600 }}>{u.fullName}</div>
-            <div style={{ fontSize: "0.75rem", color: "#4b5563" }}>
-              {u.username} · {u.role}
-            </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+      {users.map((u) => {
+        const selected = selectedUser?.id === u.id;
+
+        return (
+          <div key={u.id} style={itemStyle(selected)}>
+            <button
+              type="button"
+              onClick={() => onSelect(u)}
+              style={{
+                all: "unset",
+                cursor: "pointer",
+                display: "block",
+                width: "100%",
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>{u.fullName}</div>
+
+              <div style={{ fontSize: "0.75rem", color: theme.muted }}>
+                {u.username} · {u.role}
+              </div>
+
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  color: u.isActive ? "#22c55e" : "#ef4444",
+                }}
+              >
+                {u.isActive ? "Activo" : "Baja"}
+              </div>
+            </button>
+
             <div
               style={{
-                fontSize: "0.75rem",
-                color: u.isActive ? "#16a34a" : "#dc2626",
+                marginTop: "0.35rem",
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "0.35rem",
               }}
             >
-              {u.isActive ? "Activo" : "Baja"}
+              <button
+                type="button"
+                onClick={() => onToggleActive(u)}
+                style={
+                  u.isActive
+                    ? actionBtn(
+                        theme.darkMode ? "#3b0f18" : "#fee2e2",
+                        theme.dangerText,
+                        theme.dangerText
+                      )
+                    : actionBtn(
+                        theme.darkMode ? "#0f2a1a" : "#dcfce7",
+                        "#22c55e",
+                        "#22c55e"
+                      )
+                }
+              >
+                {u.isActive ? "Desactivar" : "Activar"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onDeleteUser(u)}
+                style={actionBtn(
+                  theme.darkMode ? "#3b0f18" : "#fee2e2",
+                  theme.dangerText,
+                  theme.dangerText
+                )}
+              >
+                Eliminar
+              </button>
             </div>
-          </button>
-
-          <div
-            style={{
-              marginTop: "0.25rem",
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: "0.25rem",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => onToggleActive(u)}
-              style={{
-                fontSize: "0.75rem",
-                padding: "0.15rem 0.4rem",
-                borderRadius: "0.25rem",
-                border: "1px solid #d1d5db",
-                backgroundColor: u.isActive ? "#fee2e2" : "#dcfce7",
-                color: u.isActive ? "#b91c1c" : "#166534",
-                cursor: "pointer",
-              }}
-            >
-              {u.isActive ? "Desactivar" : "Activar"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onDeleteUser(u)}
-              style={{
-                fontSize: "0.75rem",
-                padding: "0.15rem 0.4rem",
-                borderRadius: "0.25rem",
-                border: "1px solid #fecaca",
-                backgroundColor: "#fee2e2",
-                color: "#b91c1c",
-                cursor: "pointer",
-              }}
-            >
-              Eliminar
-            </button>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
