@@ -6,9 +6,21 @@ type User = {
   fullName: string;
 };
 
+type Theme = {
+  border: string;
+  text: string;
+  muted: string;
+  cardBg: string;
+  inputBg: string;
+  inputBorder: string;
+  dangerText: string;
+  primary: string;
+};
+
 interface AdminHoursViewerProps {
   user: User;
-};
+  theme: Theme;
+}
 
 type AbsenceType =
   | "none"
@@ -30,7 +42,7 @@ interface StoredDay {
 interface MonthHours {
   userId: string;
   year: number;
-  month: number; // 1-12
+  month: number;
   days: StoredDay[];
   signatureDataUrl?: string | null;
 }
@@ -66,6 +78,7 @@ const formatTotal = (totalMinutes?: number) => {
 
 export default function AdminHoursViewer({
   user: selectedUser,
+  theme,
 }: AdminHoursViewerProps) {
   const { user: admin, logout } = useAuth();
 
@@ -73,6 +86,26 @@ export default function AdminHoursViewer({
   const [month, setMonth] = useState(1);
   const [data, setData] = useState<AdminHoursResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const inputStyle: React.CSSProperties = {
+    marginLeft: "0.25rem",
+    borderRadius: "0.25rem",
+    border: `1px solid ${theme.inputBorder}`,
+    backgroundColor: theme.inputBg,
+    color: theme.text,
+    padding: "0.3rem 0.4rem",
+    outline: "none",
+  };
+
+  const btnStyle = (primary?: boolean): React.CSSProperties => ({
+    padding: "0.4rem 0.75rem",
+    borderRadius: "0.35rem",
+    border: primary ? `1px solid ${theme.primary}` : `1px solid ${theme.inputBorder}`,
+    backgroundColor: primary ? theme.primary : theme.inputBg,
+    color: primary ? "#fff" : theme.text,
+    cursor: "pointer",
+    opacity: isLoading ? 0.7 : 1,
+  });
 
   const loadHours = async () => {
     if (!admin?.token) {
@@ -86,9 +119,7 @@ export default function AdminHoursViewer({
       const res = await fetch(
         `${API_BASE_URL}/admin/hours?userId=${selectedUser.id}&year=${year}&month=${month}`,
         {
-          headers: {
-            Authorization: `Bearer ${admin.token}`,
-          },
+          headers: { Authorization: `Bearer ${admin.token}` },
         }
       );
 
@@ -125,9 +156,7 @@ export default function AdminHoursViewer({
       const res = await fetch(
         `${API_BASE_URL}/admin/hours/pdf?userId=${selectedUser.id}&year=${year}&month=${month}`,
         {
-          headers: {
-            Authorization: `Bearer ${admin.token}`,
-          },
+          headers: { Authorization: `Bearer ${admin.token}` },
         }
       );
 
@@ -162,17 +191,17 @@ export default function AdminHoursViewer({
   const monthData = data?.exists && data.data ? data.data : null;
 
   return (
-    <div>
+    <div style={{ color: theme.text }}>
       <h2>Horas de: {selectedUser.fullName}</h2>
 
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
+      <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem", alignItems: "center" }}>
         <label>
           Año:
           <input
             type="number"
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
-            style={{ marginLeft: "0.25rem", width: "5rem" }}
+            style={{ ...inputStyle, width: "5.5rem" }}
           />
         </label>
 
@@ -184,20 +213,20 @@ export default function AdminHoursViewer({
             onChange={(e) => setMonth(Number(e.target.value))}
             min={1}
             max={12}
-            style={{ marginLeft: "0.25rem", width: "3rem" }}
+            style={{ ...inputStyle, width: "3.5rem" }}
           />
         </label>
 
-        <button onClick={loadHours} disabled={isLoading}>
+        <button onClick={loadHours} disabled={isLoading} style={btnStyle(true)}>
           {isLoading ? "Cargando..." : "Cargar"}
         </button>
-        <button onClick={downloadPdf} disabled={isLoading || !monthData}>
+        <button onClick={downloadPdf} disabled={isLoading || !monthData} style={btnStyle(false)}>
           Descargar PDF
         </button>
       </div>
 
       {!monthData && (
-        <p style={{ fontSize: "0.85rem", color: "#4b5563" }}>
+        <p style={{ fontSize: "0.85rem", color: theme.muted }}>
           {data?.exists === false
             ? "No hay datos de horas guardados para este mes."
             : "Sin datos cargados. Pulsa en «Cargar» para ver el detalle."}
@@ -207,10 +236,11 @@ export default function AdminHoursViewer({
       {monthData && (
         <div
           style={{
-            border: "1px solid #e5e7eb",
+            border: `1px solid ${theme.border}`,
             borderRadius: "0.5rem",
             padding: "0.75rem",
             fontSize: "0.8rem",
+            backgroundColor: theme.cardBg,
           }}
         >
           <div style={{ marginBottom: "0.5rem" }}>
@@ -219,82 +249,42 @@ export default function AdminHoursViewer({
             </strong>
           </div>
 
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: "0.78rem",
-            }}
-          >
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
             <thead>
               <tr>
-                <th style={{ border: "1px solid #e5e7eb", padding: "0.25rem" }}>
-                  Día
-                </th>
-                <th style={{ border: "1px solid #e5e7eb", padding: "0.25rem" }}>
-                  Mañana
-                </th>
-                <th style={{ border: "1px solid #e5e7eb", padding: "0.25rem" }}>
-                  Tarde
-                </th>
-                <th style={{ border: "1px solid #e5e7eb", padding: "0.25rem" }}>
-                  Total (h)
-                </th>
-                <th style={{ border: "1px solid #e5e7eb", padding: "0.25rem" }}>
-                  Ausencia
-                </th>
+                {["Día", "Mañana", "Tarde", "Total (h)", "Ausencia"].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      border: `1px solid ${theme.border}`,
+                      padding: "0.35rem",
+                      backgroundColor: theme.inputBg,
+                      color: theme.text,
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {monthData.days.map((d) => (
                 <tr key={d.day}>
-                  <td
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      padding: "0.25rem",
-                      textAlign: "center",
-                    }}
-                  >
+                  <td style={{ border: `1px solid ${theme.border}`, padding: "0.25rem", textAlign: "center" }}>
                     {d.day}
                   </td>
-                  <td
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      padding: "0.25rem",
-                      textAlign: "center",
-                    }}
-                  >
+                  <td style={{ border: `1px solid ${theme.border}`, padding: "0.25rem", textAlign: "center" }}>
                     {(d.morningIn || d.morningOut) &&
                       `${d.morningIn ?? "--:--"} - ${d.morningOut ?? "--:--"}`}
                   </td>
-                  <td
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      padding: "0.25rem",
-                      textAlign: "center",
-                    }}
-                  >
+                  <td style={{ border: `1px solid ${theme.border}`, padding: "0.25rem", textAlign: "center" }}>
                     {(d.afternoonIn || d.afternoonOut) &&
-                      `${d.afternoonIn ?? "--:--"} - ${
-                        d.afternoonOut ?? "--:--"
-                      }`}
+                      `${d.afternoonIn ?? "--:--"} - ${d.afternoonOut ?? "--:--"}`}
                   </td>
-                  <td
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      padding: "0.25rem",
-                      textAlign: "center",
-                    }}
-                  >
+                  <td style={{ border: `1px solid ${theme.border}`, padding: "0.25rem", textAlign: "center" }}>
                     {formatTotal(d.totalMinutes)}
                   </td>
-                  <td
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      padding: "0.25rem",
-                      textAlign: "center",
-                    }}
-                  >
+                  <td style={{ border: `1px solid ${theme.border}`, padding: "0.25rem", textAlign: "center" }}>
                     {labelAbsence(d.absenceType)}
                   </td>
                 </tr>

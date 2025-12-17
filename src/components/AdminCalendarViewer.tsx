@@ -1,17 +1,27 @@
 import React, { useEffect, useState } from "react";
-import { CalendarPageCore } from "../components/CalendarPageCore"; // reutilizamos la cuadrícula
+import { CalendarPageCore } from "../components/CalendarPageCore";
 import type { AdminUser } from "./UserList";
+
+type Theme = {
+  border: string;
+  text: string;
+  muted: string;
+  cardBg: string;
+  inputBg: string;
+  inputBorder: string;
+  primary: string;
+};
 
 const AdminCalendarViewer: React.FC<{
   user: AdminUser;
   token: string;
-}> = ({ user, token }) => {
+  theme: Theme;
+}> = ({ user, token, theme }) => {
   const API = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
 
   const [events, setEvents] = useState<any[]>([]);
 
   useEffect(() => {
-    // Traemos TODOS los eventos del trabajador (incluidos los “only-me”)
     fetch(`${API}/admin/calendar/events/${user.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -39,13 +49,29 @@ const AdminCalendarViewer: React.FC<{
   };
 
   return (
-    <div>
+    <div style={{ color: theme.text }}>
       <h3>Calendario de {user.fullName}</h3>
-      <CalendarPageCore
-        events={events}
-        readOnly
-        onApproveVacation={handleApprove}
-      />
+
+      {/* Wrapper que “oscurece” el área del calendario */}
+      <div
+        style={{
+          border: `1px solid ${theme.border}`,
+          borderRadius: "0.75rem",
+          padding: "0.75rem",
+          backgroundColor: theme.cardBg,
+        }}
+      >
+        <CalendarPageCore
+          events={events}
+          readOnly
+          onApproveVacation={handleApprove}
+        />
+      </div>
+
+      <p style={{ marginTop: "0.75rem", color: theme.muted, fontSize: "0.85rem" }}>
+        Si algunas celd: cas/colores del calendario siguen en blanco, es porque los pinta CalendarPageCore con colores fijos.
+        Para que el modo oscuro afecte a TODO, hay que adaptar CalendarPageCore también.
+      </p>
     </div>
   );
 };

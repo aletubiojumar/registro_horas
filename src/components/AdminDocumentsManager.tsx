@@ -3,12 +3,28 @@ import type { AdminUser } from "./UserList";
 
 type DocType = "payroll" | "contract" | "citation";
 
+type Theme = {
+  pageBg: string;
+  rightBg: string;
+  leftBg: string;
+  border: string;
+  text: string;
+  muted: string;
+  cardBg: string;
+  inputBg: string;
+  inputBorder: string;
+  dangerBg: string;
+  dangerText: string;
+  primary: string;
+};
+
 interface Props {
   user: AdminUser;
   token: string;
+  theme: Theme;
 }
 
-const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
+const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
   const API = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
 
   const [payrolls, setPayrolls] = useState<any[]>([]);
@@ -20,32 +36,28 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  // Refs para inputs de archivo
   const payrollInputRef = React.useRef<HTMLInputElement>(null);
   const contractInputRef = React.useRef<HTMLInputElement>(null);
   const citationInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Listados iniciales
     loadDocuments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [API, token, user.id]);
 
   const loadDocuments = () => {
-    // Cargar nóminas
     fetch(`${API}/documents/payrolls`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
       .then((d) => setPayrolls(d.payrolls || []));
 
-    // Cargar citaciones
     fetch(`${API}/documents/citations`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
       .then((d) => setCitations(d.citations || []));
 
-    // Cargar contrato del trabajador seleccionado
     fetch(`${API}/admin/documents/contract?userId=${user.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -62,7 +74,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
     setUploading(true);
     const form = new FormData();
     form.append("file", file);
-    form.append("ownerId", user.id); // ⬅️ CRÍTICO: ID del trabajador seleccionado
+    form.append("ownerId", user.id);
 
     if (type === "payroll") {
       form.append("month", String(month).padStart(2, "0"));
@@ -74,14 +86,6 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
       form.append("title", title);
       form.append("issuedAt", new Date().toISOString().slice(0, 10));
     }
-
-    // Log para depuración
-    console.log("📡 Subiendo documento:", {
-      type,
-      ownerId: user.id,
-      fileName: file.name,
-      url: `${API}/admin/documents/${type}`,
-    });
 
     fetch(`${API}/admin/documents/${type}`, {
       method: "POST",
@@ -98,11 +102,9 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
       .then(() => {
         alert("✅ Documento subido correctamente");
         setFile(null);
-        // Limpiar input file
         if (payrollInputRef.current) payrollInputRef.current.value = "";
         if (contractInputRef.current) contractInputRef.current.value = "";
         if (citationInputRef.current) citationInputRef.current.value = "";
-        // Recargar documentos
         loadDocuments();
       })
       .catch((err) => {
@@ -115,7 +117,6 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
   const handleDelete = (type: DocType, id?: string) => {
     if (!window.confirm("¿Eliminar este documento?")) return;
 
-    // ⬇️ CORREGIR ESTA LÍNEA - usa user.id (del prop, que es el trabajador seleccionado)
     const url =
       type === "contract"
         ? `${API}/admin/documents/contract?userId=${user.id}`
@@ -148,9 +149,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
       })
       .then((blob) => {
         const fileName =
-          type === "contract"
-            ? `contrato_${user.id}.pdf`
-            : `${type}_${id}.pdf`;
+          type === "contract" ? `contrato_${user.id}.pdf` : `${type}_${id}.pdf`;
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = fileName;
@@ -162,17 +161,37 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
       });
   };
 
+  const sectionStyle: React.CSSProperties = {
+    border: `1px solid ${theme.border}`,
+    borderRadius: "0.5rem",
+    padding: "1.5rem",
+    backgroundColor: theme.cardBg,
+    color: theme.text,
+  };
+
+  const inputStyle: React.CSSProperties = {
+    border: `1px solid ${theme.inputBorder}`,
+    backgroundColor: theme.inputBg,
+    color: theme.text,
+    borderRadius: "0.25rem",
+    padding: "0.4rem",
+    outline: "none",
+  };
+
+  const smallBtn = (bg: string, border: string, color: string): React.CSSProperties => ({
+    padding: "0.2rem 0.5rem",
+    fontSize: "0.75rem",
+    borderRadius: "0.25rem",
+    border: `1px solid ${border}`,
+    backgroundColor: bg,
+    color,
+    cursor: "pointer",
+  });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
       {/* NÓMINAS */}
-      <section
-        style={{
-          border: "1px solid #e5e7eb",
-          borderRadius: "0.5rem",
-          padding: "1.5rem",
-          backgroundColor: "#fff",
-        }}
-      >
+      <section style={sectionStyle}>
         <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Nóminas</h3>
         <div
           style={{
@@ -187,12 +206,12 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
             type="file"
             accept=".pdf"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
-            style={{ flex: 1 }}
+            style={{ flex: 1, color: theme.text }}
           />
           <select
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            style={{ padding: "0.4rem" }}
+            style={inputStyle}
           >
             <option value="">Selecciona mes</option>
             {Array.from({ length: 12 }, (_, i) => (
@@ -209,7 +228,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
             onChange={(e) => setYear(Number(e.target.value))}
             min="2020"
             max="2030"
-            style={{ width: 80, padding: "0.4rem" }}
+            style={{ ...inputStyle, width: 90 }}
           />
           <button
             onClick={() => handleUpload("payroll")}
@@ -217,8 +236,8 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
             style={{
               padding: "0.4rem 0.8rem",
               borderRadius: "0.25rem",
-              border: "1px solid #2563eb",
-              backgroundColor: "#2563eb",
+              border: `1px solid ${theme.primary}`,
+              backgroundColor: theme.primary,
               color: "#fff",
               cursor: uploading ? "not-allowed" : "pointer",
               opacity: uploading ? 0.6 : 1,
@@ -227,6 +246,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
             {uploading ? "Subiendo..." : "Subir nómina"}
           </button>
         </div>
+
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {payrolls.map((p) => (
             <li
@@ -236,7 +256,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
                 justifyContent: "space-between",
                 alignItems: "center",
                 padding: "0.4rem 0",
-                borderBottom: "1px solid #e5e7eb",
+                borderBottom: `1px solid ${theme.border}`,
               }}
             >
               <span style={{ fontSize: "0.85rem" }}>
@@ -245,31 +265,17 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
                   year: "numeric",
                 })}
               </span>
+
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button
                   onClick={() => handleDownload("payroll", p.id)}
-                  style={{
-                    padding: "0.2rem 0.5rem",
-                    fontSize: "0.75rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #d1d5db",
-                    backgroundColor: "#fff",
-                    cursor: "pointer",
-                  }}
+                  style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
                 >
                   Descargar
                 </button>
                 <button
                   onClick={() => handleDelete("payroll", p.id)}
-                  style={{
-                    padding: "0.2rem 0.5rem",
-                    fontSize: "0.75rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #fecaca",
-                    backgroundColor: "#fee2e2",
-                    color: "#b91c1c",
-                    cursor: "pointer",
-                  }}
+                  style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
                 >
                   Borrar
                 </button>
@@ -280,14 +286,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
       </section>
 
       {/* CONTRATO */}
-      <section
-        style={{
-          border: "1px solid #e5e7eb",
-          borderRadius: "0.5rem",
-          padding: "1.5rem",
-          backgroundColor: "#fff",
-        }}
-      >
+      <section style={sectionStyle}>
         <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Contrato</h3>
         {contract ? (
           <div
@@ -295,56 +294,36 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              padding: "0.4rem",
-              border: "1px solid #e5e7eb",
+              padding: "0.6rem",
+              border: `1px solid ${theme.border}`,
               borderRadius: "0.25rem",
+              backgroundColor: theme.inputBg,
             }}
           >
             <span style={{ fontSize: "0.85rem" }}>{contract.fileName}</span>
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button
                 onClick={() => handleDownload("contract")}
-                style={{
-                  padding: "0.2rem 0.5rem",
-                  fontSize: "0.75rem",
-                  borderRadius: "0.25rem",
-                  border: "1px solid #d1d5db",
-                  backgroundColor: "#fff",
-                  cursor: "pointer",
-                }}
+                style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
               >
                 Descargar
               </button>
               <button
                 onClick={() => handleDelete("contract")}
-                style={{
-                  padding: "0.2rem 0.5rem",
-                  fontSize: "0.75rem",
-                  borderRadius: "0.25rem",
-                  border: "1px solid #fecaca",
-                  backgroundColor: "#fee2e2",
-                  color: "#b91c1c",
-                  cursor: "pointer",
-                }}
+                style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
               >
                 Borrar
               </button>
             </div>
           </div>
         ) : (
-          <div
-            style={{
-              display: "flex",
-              gap: "0.5rem",
-              alignItems: "center",
-            }}
-          >
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <input
               ref={contractInputRef}
               type="file"
               accept=".pdf"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
-              style={{ flex: 1 }}
+              style={{ flex: 1, color: theme.text }}
             />
             <button
               onClick={() => handleUpload("contract")}
@@ -366,14 +345,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
       </section>
 
       {/* CITACIONES */}
-      <section
-        style={{
-          border: "1px solid #e5e7eb",
-          borderRadius: "0.5rem",
-          padding: "1.5rem",
-          backgroundColor: "#fff",
-        }}
-      >
+      <section style={sectionStyle}>
         <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Citaciones</h3>
         <div
           style={{
@@ -388,7 +360,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
             type="file"
             accept=".pdf"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
-            style={{ flex: 1 }}
+            style={{ flex: 1, color: theme.text }}
           />
           <button
             onClick={() => handleUpload("citation")}
@@ -406,6 +378,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
             {uploading ? "Subiendo..." : "Subir citación"}
           </button>
         </div>
+
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {citations.map((c) => (
             <li
@@ -415,40 +388,25 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token }) => {
                 justifyContent: "space-between",
                 alignItems: "center",
                 padding: "0.4rem 0",
-                borderBottom: "1px solid #e5e7eb",
+                borderBottom: `1px solid ${theme.border}`,
               }}
             >
               <div>
                 <div style={{ fontSize: "0.85rem" }}>{c.title}</div>
-                <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                <div style={{ fontSize: "0.75rem", color: theme.muted }}>
                   {new Date(c.issuedAt).toLocaleDateString("es-ES")}
                 </div>
               </div>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button
                   onClick={() => handleDownload("citation", c.id)}
-                  style={{
-                    padding: "0.2rem 0.5rem",
-                    fontSize: "0.75rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #d1d5db",
-                    backgroundColor: "#fff",
-                    cursor: "pointer",
-                  }}
+                  style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
                 >
                   Descargar
                 </button>
                 <button
                   onClick={() => handleDelete("citation", c.id)}
-                  style={{
-                    padding: "0.2rem 0.5rem",
-                    fontSize: "0.75rem",
-                    borderRadius: "0.25rem",
-                    border: "1px solid #fecaca",
-                    backgroundColor: "#fee2e2",
-                    color: "#b91c1c",
-                    cursor: "pointer",
-                  }}
+                  style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
                 >
                   Borrar
                 </button>

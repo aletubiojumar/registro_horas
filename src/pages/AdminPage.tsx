@@ -405,13 +405,13 @@ const AdminPage: React.FC = () => {
               />
             )}
             {selectedTab === "hours" && (
-              <AdminHoursViewer user={selectedUser} />
+              <AdminHoursViewer user={selectedUser} theme={colors} />
             )}
             {selectedTab === "documents" && (
-              <AdminDocumentsManager user={selectedUser} token={user!.token} />
+              <AdminDocumentsManager user={selectedUser} token={user!.token} theme={colors} />
             )}
             {selectedTab === "calendar" && (
-              <AdminCalendarViewer user={selectedUser} token={user!.token} />
+              <AdminCalendarViewer user={selectedUser} token={user!.token} theme={colors} />
             )}
           </>
         ) : (
