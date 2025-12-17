@@ -290,6 +290,8 @@ app.use(express.json({ limit: "10mb" }));
 // Auth
 // -------------------------
 
+// En tu archivo index.ts, reemplaza la sección de login:
+
 app.post("/api/auth/login", async (req: Request, res: Response) => {
   try {
     const { username, password } = req.body;
@@ -325,17 +327,18 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
       role: user.role,
     };
 
-    const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: "15m" });
+    // ✅ CAMBIO: Extender a 7 días para evitar expiraciones diarias
+    const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
     const refreshToken = jwt.sign(
       { ...payload, type: "refresh" },
       process.env.JWT_REFRESH_SECRET || JWT_SECRET + "_refresh",
-      { expiresIn: "7d" }
+      { expiresIn: "30d" }
     );
 
     res.json({
       accessToken,
       refreshToken,
-      expiresIn: "15m",
+      expiresIn: "7d", // ✅ Actualizar este valor también
       user: {
         id: user.id,
         username: user.username,
@@ -349,6 +352,36 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
       error: "Error interno del servidor",
       detail: err instanceof Error ? err.message : "unknown error",
     });
+  }
+});
+
+// ✅ También actualizar el refresh para que devuelva tokens de 7 días
+app.post("/api/auth/refresh", async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken)
+      return res.status(401).json({ error: "Refresh token required" });
+
+    const decoded = jwt.verify(
+      refreshToken,
+      process.env.JWT_REFRESH_SECRET || JWT_SECRET + "_refresh"
+    ) as any;
+
+    const dbUser = await getUserById(decoded.userId);
+    if (!dbUser?.is_active) {
+      return res.status(403).json({ error: "User not found or inactive" });
+    }
+
+    const newAccessToken = jwt.sign(
+      { userId: dbUser.id, username: dbUser.username, role: dbUser.role },
+      JWT_SECRET,
+      { expiresIn: "7d" } // ✅ Cambiar de 15m a 7d
+    );
+
+    res.json({ accessToken: newAccessToken, expiresIn: "7d" });
+  } catch (err) {
+    console.error("Refresh error:", err);
+    res.status(403).json({ error: "Invalid refresh token" });
   }
 });
 

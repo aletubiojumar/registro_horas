@@ -21,6 +21,7 @@ interface AuthContextProps {
   login: (tokens: Tokens, userData: Omit<LoggedUser, 'token'>) => void;
   logout: () => void;
   refreshAccessToken: () => Promise<string | null>;
+  fetchWithAuth: (url: string, options?: RequestInit) => Promise<Response>; // ✅ NUEVO
 }
 
 const AuthContext = createContext<AuthContextProps | undefined>(undefined);
@@ -28,11 +29,12 @@ const AuthContext = createContext<AuthContextProps | undefined>(undefined);
 const STORAGE_KEY = "registro_horas_user";
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080"; // ✅ Cambiado a 8080
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<LoggedUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshPromise, setRefreshPromise] = useState<Promise<string | null> | null>(null); // ✅ NUEVO
 
   // Cargar usuario y tokens del localStorage
   useEffect(() => {
@@ -72,36 +74,94 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshAccessToken = async (): Promise<string | null> => {
-    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    if (!refreshToken) {
-      logout();
-      return null;
+    // ✅ Evitar múltiples refreshes simultáneos
+    if (refreshPromise) {
+      return refreshPromise;
     }
 
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken })
-      });
+    const promise = (async () => {
+      const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+      if (!refreshToken) {
+        logout();
+        return null;
+      }
 
-      if (!res.ok) throw new Error('Refresh failed');
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, { // ✅ Añadido /api
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken })
+        });
 
-      const { accessToken } = await res.json();
-      localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-      
-      setUser(prev => prev ? { ...prev, token: accessToken } : null);
-      return accessToken;
-    } catch (err) {
-      console.error('Token refresh failed:', err);
-      logout();
-      return null;
-    }
+        if (!res.ok) throw new Error('Refresh failed');
+
+        const { accessToken } = await res.json();
+        localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+        
+        setUser(prev => prev ? { ...prev, token: accessToken } : null);
+        return accessToken;
+      } catch (err) {
+        console.error('Token refresh failed:', err);
+        logout();
+        return null;
+      } finally {
+        setRefreshPromise(null); // ✅ Limpiar promise
+      }
+    })();
+
+    setRefreshPromise(promise);
+    return promise;
   };
 
-    // Dentro del provider, antes del return:
+  // ✅ NUEVO: Fetch con auto-refresh
+  const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    let token = localStorage.getItem(ACCESS_TOKEN_KEY);
+
+    if (!token) {
+      throw new Error('No token available');
+    }
+
+    // Primera petición con el token actual
+    let response = await fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    // Si es 401, intentar refrescar el token y reintentar
+    if (response.status === 401) {
+      console.log('🔄 Token expirado, refrescando...');
+      
+      const newToken = await refreshAccessToken();
+      
+      if (!newToken) {
+        throw new Error('Failed to refresh token');
+      }
+
+      // Reintentar la petición con el nuevo token
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          ...options.headers,
+          'Authorization': `Bearer ${newToken}`,
+        },
+      });
+    }
+
+    return response;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshAccessToken }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      login, 
+      logout, 
+      refreshAccessToken,
+      fetchWithAuth // ✅ NUEVO
+    }}>
       {children}
     </AuthContext.Provider>
   );
