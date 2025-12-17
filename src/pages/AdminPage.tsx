@@ -7,15 +7,67 @@ import AdminHoursViewer from "../components/AdminHoursViewer";
 import UserDataEditor from "../components/UserDataEditor";
 import AdminDocumentsManager from "../components/AdminDocumentsManager";
 import AdminCalendarViewer from "../components/AdminCalendarViewer";
+import { applyTheme, readTheme } from "../theme";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
 
 type Tab = "data" | "hours" | "documents" | "calendar";
 
+/* ---------- Iconos (igual que ProfilePage) ---------- */
+const IconMoon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M21 14.5A8.5 8.5 0 0 1 9.5 3a6.8 6.8 0 1 0 11.5 11.5Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const IconSun = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+    <circle
+      cx="12"
+      cy="12"
+      r="4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    />
+    <path
+      d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const themeToggleStyle = (dark: boolean): React.CSSProperties => ({
+  width: 40,
+  height: 40,
+  borderRadius: "999px",
+  border: "1px solid #d1d5db",
+  backgroundColor: dark ? "#111827" : "#ffffff",
+  color: dark ? "#f9fafb" : "#111827",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+});
+
 const AdminPage: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+
+  // Modo oscuro (igual que ProfilePage)
+  const [darkMode, setDarkMode] = useState(() => readTheme());
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
@@ -29,6 +81,22 @@ const AdminPage: React.FC = () => {
 
   // Tab seleccionado
   const [selectedTab, setSelectedTab] = useState<Tab>("data");
+
+  // Colores dependientes de darkMode (para que AdminPage cambie también)
+  const colors = {
+    pageBg: darkMode ? "#0b1220" : "#ffffff",
+    rightBg: darkMode ? "#0b1220" : "#ffffff",
+    leftBg: darkMode ? "#0f172a" : "#f9fafb",
+    border: darkMode ? "#334155" : "#e5e7eb",
+    text: darkMode ? "#e5e7eb" : "#111827",
+    muted: darkMode ? "#94a3b8" : "#4b5563",
+    cardBg: darkMode ? "#0b1220" : "#ffffff",
+    inputBg: darkMode ? "#111827" : "#ffffff",
+    inputBorder: darkMode ? "#334155" : "#d1d5db",
+    dangerBg: darkMode ? "#3f1d1d" : "#fee2e2",
+    dangerText: darkMode ? "#fecaca" : "#b91c1c",
+    primary: "#2563eb",
+  };
 
   // Cargar usuarios
   useEffect(() => {
@@ -51,13 +119,17 @@ const AdminPage: React.FC = () => {
     if (!user?.token) return;
     const end = u.isActive ? "deactivate" : "activate";
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/admin/users/${u.id}/${end}`,
-        { method: "PATCH", headers: { Authorization: `Bearer ${user.token}` } }
-      );
+      const res = await fetch(`${API_BASE_URL}/admin/users/${u.id}/${end}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
       if (!res.ok) throw new Error((await res.json()).error);
-      setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, isActive: !u.isActive } : x)));
-      setSelectedUser((p) => (p?.id === u.id ? { ...p, isActive: !u.isActive } : p));
+      setUsers((p) =>
+        p.map((x) => (x.id === u.id ? { ...x, isActive: !u.isActive } : x))
+      );
+      setSelectedUser((p) =>
+        p?.id === u.id ? { ...p, isActive: !u.isActive } : p
+      );
     } catch (e: any) {
       alert(e.message);
     }
@@ -87,6 +159,8 @@ const AdminPage: React.FC = () => {
       return;
     }
     setCreatingUser(true);
+    setCreateErrorMsg(null);
+
     const ts = Date.now();
     const body = {
       username: `user${ts}`,
@@ -95,6 +169,7 @@ const AdminPage: React.FC = () => {
       role: "worker",
       vacationDaysPerYear: 23,
     };
+
     try {
       const res = await fetch(`${API_BASE_URL}/admin/users`, {
         method: "POST",
@@ -127,16 +202,47 @@ const AdminPage: React.FC = () => {
     setSelectedUser(updated);
   };
 
+  const handleToggleTheme = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    applyTheme(next);
+  };
+
   /* ---------- UI ---------- */
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100%" }}>
-      {/* Panel izquierdo (igual que antes) */}
+    <div
+      style={{
+        display: "flex",
+        height: "100vh",
+        width: "100%",
+        backgroundColor: colors.pageBg,
+        color: colors.text,
+      }}
+    >
+      {/* Toggle modo oscuro: fijo arriba-izquierda, luna/sol, sin texto */}
+      <button
+        type="button"
+        onClick={handleToggleTheme}
+        aria-label={darkMode ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+        title={darkMode ? "Modo claro" : "Modo oscuro"}
+        style={{
+          ...themeToggleStyle(darkMode),
+          position: "fixed",
+          top: 16,
+          left: 16,
+          zIndex: 9999,
+        }}
+      >
+        {darkMode ? <IconSun /> : <IconMoon />}
+      </button>
+
+      {/* Panel izquierdo */}
       <div
         style={{
           width: "360px",
-          borderRight: "1px solid #e5e7eb",
+          borderRight: `1px solid ${colors.border}`,
           padding: "1rem",
-          backgroundColor: "#f9fafb",
+          backgroundColor: colors.leftBg,
           display: "flex",
           flexDirection: "column",
           gap: "1rem",
@@ -148,7 +254,7 @@ const AdminPage: React.FC = () => {
             Panel de administración
           </div>
           {user && (
-            <div style={{ fontSize: "0.8rem", color: "#4b5563" }}>
+            <div style={{ fontSize: "0.8rem", color: colors.muted }}>
               Sesión iniciada como <strong>{user.username}</strong>
             </div>
           )}
@@ -158,8 +264,9 @@ const AdminPage: React.FC = () => {
               marginTop: "0.25rem",
               padding: "0.25rem 0.6rem",
               borderRadius: "0.35rem",
-              border: "1px solid #d1d5db",
-              backgroundColor: "#ffffff",
+              border: `1px solid ${colors.inputBorder}`,
+              backgroundColor: colors.cardBg,
+              color: colors.text,
               fontSize: "0.8rem",
               cursor: "pointer",
             }}
@@ -180,8 +287,11 @@ const AdminPage: React.FC = () => {
                 width: "100%",
                 padding: "0.4rem",
                 borderRadius: "0.25rem",
-                border: "1px solid #d1d5db",
+                border: `1px solid ${colors.inputBorder}`,
+                backgroundColor: colors.inputBg,
+                color: colors.text,
                 fontSize: "0.85rem",
+                outline: "none",
               }}
             />
             {createErrorMsg && (
@@ -190,8 +300,8 @@ const AdminPage: React.FC = () => {
                   marginTop: "0.5rem",
                   padding: "0.3rem",
                   borderRadius: "0.25rem",
-                  backgroundColor: "#fee2e2",
-                  color: "#b91c1c",
+                  backgroundColor: colors.dangerBg,
+                  color: colors.dangerText,
                   fontSize: "0.75rem",
                 }}
               >
@@ -207,7 +317,7 @@ const AdminPage: React.FC = () => {
                 padding: "0.5rem 0.75rem",
                 borderRadius: "0.35rem",
                 border: "none",
-                backgroundColor: "#2563eb",
+                backgroundColor: colors.primary,
                 color: "#ffffff",
                 fontSize: "0.85rem",
                 fontWeight: 500,
@@ -225,7 +335,9 @@ const AdminPage: React.FC = () => {
           <h2 style={{ marginBottom: "0.5rem" }}>Usuarios</h2>
           {loadingUsers && <p>Cargando...</p>}
           {errorMsg && (
-            <p style={{ color: "#b91c1c", fontSize: "0.8rem" }}>{errorMsg}</p>
+            <p style={{ color: colors.dangerText, fontSize: "0.8rem" }}>
+              {errorMsg}
+            </p>
           )}
           {!loadingUsers && !errorMsg && (
             <UserList
@@ -240,7 +352,14 @@ const AdminPage: React.FC = () => {
       </div>
 
       {/* Panel derecho */}
-      <div style={{ flex: 1, padding: "1rem", overflowY: "auto" }}>
+      <div
+        style={{
+          flex: 1,
+          padding: "1rem",
+          overflowY: "auto",
+          backgroundColor: colors.rightBg,
+        }}
+      >
         {selectedUser ? (
           <>
             {/* Pestañas */}
@@ -249,7 +368,7 @@ const AdminPage: React.FC = () => {
                 display: "flex",
                 gap: "0.5rem",
                 marginBottom: "1rem",
-                borderBottom: "1px solid #e5e7eb",
+                borderBottom: `1px solid ${colors.border}`,
               }}
             >
               {(["data", "hours", "documents", "calendar"] as Tab[]).map((t) => (
@@ -260,9 +379,11 @@ const AdminPage: React.FC = () => {
                     padding: "0.5rem 1rem",
                     border: "none",
                     borderBottom:
-                      selectedTab === t ? "2px solid #2563eb" : "none",
+                      selectedTab === t
+                        ? `2px solid ${colors.primary}`
+                        : "2px solid transparent",
                     backgroundColor: "transparent",
-                    color: selectedTab === t ? "#2563eb" : "#6b7280",
+                    color: selectedTab === t ? colors.primary : colors.muted,
                     fontWeight: selectedTab === t ? 600 : 400,
                     cursor: "pointer",
                   }}
@@ -277,9 +398,14 @@ const AdminPage: React.FC = () => {
 
             {/* Contenido según tab */}
             {selectedTab === "data" && (
-              <UserDataEditor user={selectedUser} onUserUpdated={handleUserDataUpdated} />
+              <UserDataEditor
+                user={selectedUser}
+                onUserUpdated={handleUserDataUpdated}
+              />
             )}
-            {selectedTab === "hours" && <AdminHoursViewer user={selectedUser} />}
+            {selectedTab === "hours" && (
+              <AdminHoursViewer user={selectedUser} />
+            )}
             {selectedTab === "documents" && (
               <AdminDocumentsManager user={selectedUser} token={user!.token} />
             )}
@@ -288,7 +414,9 @@ const AdminPage: React.FC = () => {
             )}
           </>
         ) : (
-          <p>Selecciona un usuario en la lista de la izquierda.</p>
+          <p style={{ color: colors.muted }}>
+            Selecciona un usuario en la lista de la izquierda.
+          </p>
         )}
       </div>
     </div>
