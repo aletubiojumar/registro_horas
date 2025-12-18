@@ -25,7 +25,7 @@ interface Props {
 }
 
 const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
-  const API = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+  const API = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
   const [payrolls, setPayrolls] = useState<any[]>([]);
   const [citations, setCitations] = useState<any[]>([]);
@@ -46,13 +46,13 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
   }, [API, token, user.id]);
 
   const loadDocuments = () => {
-    fetch(`${API}/documents/payrolls`, {
+    fetch(`${API}/admin/documents/payrolls?userId=${user.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
       .then((d) => setPayrolls(d.payrolls || []));
 
-    fetch(`${API}/documents/citations`, {
+    fetch(`${API}/admin/documents/citations?userId=${user.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
@@ -139,8 +139,8 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
   const handleDownload = (type: DocType, id?: string) => {
     const url =
       type === "contract"
-        ? `${API}/admin/documents/contract?userId=${user.id}`
-        : `${API}/admin/documents/${type}s/${id}`;
+        ? `${API}/admin/documents/contract/download?userId=${user.id}`
+        : `${API}/admin/documents/${type}s/${id}/download`;
 
     fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => {

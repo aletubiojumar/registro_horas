@@ -10,7 +10,7 @@ import AdminCalendarViewer from "../components/AdminCalendarViewer";
 import { applyTheme, readTheme } from "../theme";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+  import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 type Tab = "data" | "hours" | "documents" | "calendar";
 
