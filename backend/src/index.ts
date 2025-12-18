@@ -89,6 +89,50 @@ async function ensureIaSchema() {
   console.log("✅ IA schema listo (ia_chats / ia_messages)");
 }
 
+async function ensureDocsSchema() {
+  const pool = getPool();
+
+  // UUIDs con pgcrypto (gen_random_uuid)
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`);
+
+  // payrolls
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS payrolls (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      owner_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      year int NOT NULL,
+      month varchar(2) NOT NULL,
+      file_name text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_payrolls_owner ON payrolls(owner_id);`);
+
+  // citations
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS citations (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      owner_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title text NOT NULL,
+      issued_at text NOT NULL,
+      file_name text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_citations_owner ON citations(owner_id);`);
+
+  // contracts (1 por usuario)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contracts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      owner_id uuid NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      file_name text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+}
+
 // -------------------------
 // OpenAI
 // -------------------------
@@ -2127,6 +2171,7 @@ if (require.main === module) {
     try {
       await initDb();          // ⬅️ IMPORTANTÍSIMO: inicializa pool con Secrets Manager
       await ensureIaSchema();  // ⬅️ crea tablas IA
+      await ensureDocsSchema(); // <-- AÑADIR ESTA LÍNEA
 
       const server = app.listen(PORT, HOST, () => {
         console.log("========================================");
