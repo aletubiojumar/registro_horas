@@ -1547,6 +1547,235 @@ app.delete("/api/perito-ia/chats/:chatId", authMiddleware, async (req: AuthReque
 });
 
 // -------------------------
+// Admin: documents
+// -------------------------
+
+// List payrolls for a specific user
+app.get("/api/admin/documents/payrolls", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = String(req.query.userId || "");
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const list = await listPayrollsForUser(userId);
+    res.json({
+      payrolls: list.map((p) => ({
+        id: p.id,
+        ownerId: p.owner_id,
+        year: String(p.year),
+        month: p.month,
+        fileName: p.file_name,
+      })),
+    });
+  } catch (err) {
+    console.error("Error GET /api/admin/documents/payrolls:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Upload payroll for a specific user
+app.post("/api/admin/documents/payroll", authMiddleware, adminOnlyMiddleware, upload.single("file"), async (req: AuthRequest, res) => {
+  try {
+    const { ownerId, year, month } = req.body;
+    const file = req.file;
+
+    if (!file) return res.status(400).json({ error: "Falta archivo" });
+    if (!ownerId || !year || !month) return res.status(400).json({ error: "Faltan campos (ownerId, year, month)" });
+
+    await createPayrollRecord({
+      ownerId: String(ownerId),
+      year: Number(year),
+      month: String(month).padStart(2, "0"),
+      fileName: file.originalname,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error POST /api/admin/documents/payroll:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Download payroll by id (admin)
+app.get("/api/admin/documents/payrolls/:id/download", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const pay = await getPayrollById(req.params.id);
+    if (!pay) return res.status(404).json({ error: "Nómina no encontrada" });
+
+    // Igual que en worker: placeholder
+    const fakeBuffer = Buffer.from(
+      `CONTENIDO DE LA NÓMINA ${pay.file_name}\nAÑO: ${pay.year} MES: ${pay.month}\n`
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${pay.file_name}"`);
+    res.send(fakeBuffer);
+  } catch (err) {
+    console.error("Error GET /api/admin/documents/payrolls/:id/download:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Delete payroll by id (admin) - opcional pero útil
+app.delete("/api/admin/documents/payrolls/:id", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    await deletePayrollRecord(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error DELETE /api/admin/documents/payrolls/:id:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+
+// List citations for a specific user
+app.get("/api/admin/documents/citations", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = String(req.query.userId || "");
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const list = await listCitationsForUser(userId);
+    res.json({
+      citations: list.map((c) => ({
+        id: c.id,
+        ownerId: c.owner_id,
+        title: c.title,
+        issuedAt: c.issued_at,
+        fileName: c.file_name,
+      })),
+    });
+  } catch (err) {
+    console.error("Error GET /api/admin/documents/citations:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Upload citation for a specific user
+app.post("/api/admin/documents/citation", authMiddleware, adminOnlyMiddleware, upload.single("file"), async (req: AuthRequest, res) => {
+  try {
+    const { ownerId, title, issuedAt } = req.body;
+    const file = req.file;
+
+    if (!file) return res.status(400).json({ error: "Falta archivo" });
+    if (!ownerId || !title || !issuedAt) return res.status(400).json({ error: "Faltan campos (ownerId, title, issuedAt)" });
+
+    await createCitationRecord({
+      ownerId: String(ownerId),
+      title: String(title),
+      issuedAt: String(issuedAt),
+      fileName: file.originalname,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error POST /api/admin/documents/citation:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Download citation by id (admin)
+app.get("/api/admin/documents/citations/:id/download", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const cit = await getCitationById(req.params.id);
+    if (!cit) return res.status(404).json({ error: "Citación no encontrada" });
+
+    // Igual que en worker: placeholder
+    const fakeBuffer = Buffer.from(
+      `CONTENIDO DE LA CITACIÓN ${cit.file_name}\nTÍTULO: ${cit.title}\nFECHA: ${cit.issued_at}\n`
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${cit.file_name}"`);
+    res.send(fakeBuffer);
+  } catch (err) {
+    console.error("Error GET /api/admin/documents/citations/:id/download:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Delete citation by id (admin) - opcional pero útil
+app.delete("/api/admin/documents/citations/:id", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    await deleteCitationRecord(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error DELETE /api/admin/documents/citations/:id:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+
+// Get contract for a specific user (admin)
+app.get("/api/admin/documents/contract", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = String(req.query.userId || "");
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const contract = await getContractForOwner(userId);
+    res.json({ contract });
+  } catch (err) {
+    console.error("Error GET /api/admin/documents/contract:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Upload/replace contract for a specific user (admin)
+app.post("/api/admin/documents/contract", authMiddleware, adminOnlyMiddleware, upload.single("file"), async (req: AuthRequest, res) => {
+  try {
+    const { ownerId } = req.body;
+    const file = req.file;
+
+    if (!file) return res.status(400).json({ error: "Falta archivo" });
+    if (!ownerId) return res.status(400).json({ error: "Falta ownerId" });
+
+    await upsertContractRecord({
+      ownerId: String(ownerId),
+      fileName: file.originalname,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error POST /api/admin/documents/contract:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Download contract for a specific user (admin)
+app.get("/api/admin/documents/contract/download", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = String(req.query.userId || "");
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const contract = await getContractForOwner(userId);
+    if (!contract) return res.status(404).json({ error: "Contrato no encontrado" });
+
+    // Igual que en worker: placeholder
+    const fakeBuffer = Buffer.from(`CONTENIDO DEL CONTRATO ${contract.file_name}\n`);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${contract.file_name}"`);
+    res.send(fakeBuffer);
+  } catch (err) {
+    console.error("Error GET /api/admin/documents/contract/download:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+// Delete contract for a specific user (admin) - opcional
+app.delete("/api/admin/documents/contract", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = String(req.query.userId || "");
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    await deleteContractRecord(userId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error DELETE /api/admin/documents/contract:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+
+// -------------------------
 // Healthchecks
 // -------------------------
 
