@@ -791,6 +791,53 @@ export async function countAllVacationsForUser(userId: string): Promise<number> 
   return rows[0]?.total ?? 0;
 }
 
+export async function ensureSecuritySchema() {
+  const pool = getPool();
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      attempted_username text NOT NULL,
+      user_id uuid NULL REFERENCES users(id) ON DELETE SET NULL,
+      success boolean NOT NULL,
+      reason text NULL,
+      ip text NULL,
+      user_agent text NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_login_attempts_created ON login_attempts(created_at DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_login_attempts_user ON login_attempts(user_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts(attempted_username);`);
+}
+
+export async function logLoginAttempt(params: {
+  attemptedUsername: string;
+  userId: string | null;
+  success: boolean;
+  reason?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+}) {
+  const pool = getPool();
+  await pool.query(
+    `
+    INSERT INTO login_attempts
+      (attempted_username, user_id, success, reason, ip, user_agent)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    `,
+    [
+      params.attemptedUsername,
+      params.userId,
+      params.success,
+      params.reason ?? null,
+      params.ip ?? null,
+      params.userAgent ?? null,
+    ]
+  );
+}
+
 export async function setPayrollSignedPdf(opts: {
   payrollId: string;
   signedPdfData: Buffer;
@@ -808,4 +855,7 @@ export async function setPayrollSignedPdf(opts: {
     [opts.payrollId, opts.signedPdfData, opts.signatureDataUrl]
   );
 }
+
+
+
 

@@ -48,8 +48,16 @@ import {
   createCitationRecord,
   getCitationById,
   deleteCitationRecord,
-  setPayrollSignedPdf
+  setPayrollSignedPdf,
+  ensureSecuritySchema,
+  logLoginAttempt
 } from "./db";
+
+function getClientIp(req: any): string | null {
+  const xf = req.headers["x-forwarded-for"];
+  if (typeof xf === "string") return xf.split(",")[0].trim();
+  return req.socket?.remoteAddress ?? null;
+}
 
 // -------------------------
 // IA Schema
@@ -138,7 +146,7 @@ async function ensureDocsSchema() {
     );
   `);
 
-    // Tablas de horas
+  // Tablas de horas
   await pool.query(`
     CREATE TABLE IF NOT EXISTS hours_months (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -170,7 +178,7 @@ async function ensureDocsSchema() {
 
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_hours_months_user ON hours_months(user_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_hours_days_month ON hours_days(month_id);`);
-  
+
   console.log("✅ Docs schema listo (payrolls, citations, contracts, hours)");
 }
 
@@ -414,6 +422,40 @@ app.use(express.json({ limit: "10mb" }));
 // En tu archivo index.ts, reemplaza la sección de login:
 
 app.post("/api/auth/login", async (req: Request, res: Response) => {
+  const ip = getClientIp(req);
+  const userAgent = req.headers["user-agent"] || null;
+
+  function getClientIp(req: any) {
+    const xf = req.headers["x-forwarded-for"];
+    if (typeof xf === "string") return xf.split(",")[0].trim();
+    return req.socket?.remoteAddress || null;
+  }
+
+  async function logLoginAttempt(params: {
+    attemptedUsername: string;
+    userId: string | null;
+    success: boolean;
+    reason?: string | null;
+    ip?: string | null;
+    userAgent?: string | null;
+  }) {
+    const pool = getPool();
+    await pool.query(
+      `
+    INSERT INTO login_attempts (attempted_username, user_id, success, reason, ip, user_agent)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    `,
+      [
+        params.attemptedUsername,
+        params.userId,
+        params.success,
+        params.reason ?? null,
+        params.ip ?? null,
+        params.userAgent ?? null,
+      ]
+    );
+  }
+
   try {
     const { username, password } = req.body;
 
@@ -426,11 +468,29 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
     const user = await getUserByUsername(username);
     if (!user) {
       console.error(`Login fallido: usuario ${username} no encontrado`);
+      await logLoginAttempt({
+        attemptedUsername: username,
+        userId: null,
+        success: false,
+        reason: "user_not_found",
+        ip,
+        userAgent,
+      });
+
       return res.status(401).json({ error: "Credenciales incorrectas" });
     }
 
     if (!user.is_active) {
       console.warn(`Login fallido: usuario ${username} desactivado`);
+      await logLoginAttempt({
+        attemptedUsername: username,
+        userId: user.id,
+        success: false,
+        reason: "user_inactive",
+        ip,
+        userAgent,
+      });
+
       return res.status(403).json({
         error: "Usuario desactivado. Contacta con un administrador.",
       });
@@ -439,6 +499,15 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
     const passwordOk = await comparePassword(password, user.password_hash);
     if (!passwordOk) {
       console.warn(`Login fallido: contraseña incorrecta para ${username}`);
+      await logLoginAttempt({
+        attemptedUsername: username,
+        userId: user.id,
+        success: false,
+        reason: "bad_password",
+        ip,
+        userAgent,
+      });
+
       return res.status(401).json({ error: "Credenciales incorrectas" });
     }
 
@@ -447,6 +516,14 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
       username: user.username,
       role: user.role,
     };
+
+    await logLoginAttempt({
+      attemptedUsername: username,
+      userId: user.id,
+      success: true,
+      ip,
+      userAgent,
+    });
 
     // ✅ CAMBIO: Extender a 7 días para evitar expiraciones diarias
     const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
@@ -916,9 +993,9 @@ app.get("/api/calendar/users", authMiddleware, async (req: AuthRequest, res) => 
 app.get("/api/calendar/events", authMiddleware, async (req: AuthRequest, res) => {
   try {
     console.log("📅 GET /api/calendar/events - Usuario:", req.user!.userId);
-    
+
     const dbEvents = await getVisibleEventsForUser(req.user!.userId);
-    
+
     console.log("✅ Eventos obtenidos:", dbEvents.length);
 
     const events = dbEvents.map((e) => ({
@@ -936,7 +1013,7 @@ app.get("/api/calendar/events", authMiddleware, async (req: AuthRequest, res) =>
   } catch (err) {
     console.error("❌ Error GET /api/calendar/events:", err);
     console.error("❌ Stack:", err instanceof Error ? err.stack : "No stack");
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Error interno al cargar eventos",
       detail: err instanceof Error ? err.message : String(err)
     });
@@ -2345,6 +2422,7 @@ if (require.main === module) {
       await ensureIaSchema();  // ⬅️ crea tablas IA
       await ensureDocsSchema();
       await ensureCalendarSchema();
+      await ensureSecuritySchema();
 
       const server = app.listen(PORT, HOST, () => {
         console.log("========================================");
