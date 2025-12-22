@@ -48,6 +48,7 @@ import {
   createCitationRecord,
   getCitationById,
   deleteCitationRecord,
+  setPayrollSignedPdf
 } from "./db";
 
 // -------------------------
@@ -1053,6 +1054,7 @@ app.post("/api/documents/contract", authMiddleware, upload.single("file"), async
     const newDoc = await upsertContractRecord({
       ownerId,
       fileName: file.originalname,
+      pdfData: file.buffer
     });
 
     res.json({ ok: true, ownerId: newDoc.owner_id, fileName: newDoc.file_name });
@@ -1139,28 +1141,32 @@ app.get("/api/documents/citations/:id/download", authMiddleware, async (req: Aut
 // Documents (admin)
 // -------------------------
 
-// LIST payrolls (admin) by userId
-app.get(
-  "/api/admin/documents/payrolls",
+// Upload payroll for a specific user
+app.post(
+  "/api/admin/documents/payroll",
   authMiddleware,
   adminOnlyMiddleware,
-  async (req: AuthRequest, res: Response) => {
+  upload.single("file"),
+  async (req: AuthRequest, res) => {
     try {
-      const userId = String(req.query.userId || "");
-      if (!userId) return res.status(400).json({ error: "Falta userId" });
+      const { ownerId, year, month } = req.body;
+      const file = req.file;
 
-      const list = await listPayrollsForUser(userId);
-      res.json({
-        payrolls: list.map((p) => ({
-          id: p.id,
-          ownerId: p.owner_id,
-          year: String(p.year),
-          month: p.month,
-          fileName: p.file_name,
-        })),
+      if (!file) return res.status(400).json({ error: "Falta archivo" });
+      if (!ownerId || !year || !month)
+        return res.status(400).json({ error: "Faltan campos (ownerId, year, month)" });
+
+      await createPayrollRecord({
+        ownerId: String(ownerId),
+        year: Number(year),
+        month: String(month).padStart(2, "0"),
+        fileName: file.originalname,
+        pdfData: file.buffer, // ✅ NUEVO
       });
+
+      res.json({ ok: true });
     } catch (err) {
-      console.error("Error /admin/documents/payrolls:", err);
+      console.error("Error POST /api/admin/documents/payroll:", err);
       res.status(500).json({ error: "Error interno" });
     }
   }
@@ -1187,6 +1193,7 @@ app.post(
         year: Number(year),
         month: String(month).padStart(2, "0"),
         fileName: file.originalname,
+        pdfData: file.buffer
       });
 
       res.json({ ok: true });
@@ -1239,28 +1246,32 @@ app.delete(
 );
 
 
-// LIST citations (admin) by userId
-app.get(
-  "/api/admin/documents/citations",
+// Upload citation for a specific user
+app.post(
+  "/api/admin/documents/citation",
   authMiddleware,
   adminOnlyMiddleware,
-  async (req: AuthRequest, res: Response) => {
+  upload.single("file"),
+  async (req: AuthRequest, res) => {
     try {
-      const userId = String(req.query.userId || "");
-      if (!userId) return res.status(400).json({ error: "Falta userId" });
+      const { ownerId, title, issuedAt } = req.body;
+      const file = req.file;
 
-      const list = await listCitationsForUser(userId);
-      res.json({
-        citations: list.map((c) => ({
-          id: c.id,
-          ownerId: c.owner_id,
-          title: c.title,
-          issuedAt: c.issued_at,
-          fileName: c.file_name,
-        })),
+      if (!file) return res.status(400).json({ error: "Falta archivo" });
+      if (!ownerId || !title || !issuedAt)
+        return res.status(400).json({ error: "Faltan campos (ownerId, title, issuedAt)" });
+
+      await createCitationRecord({
+        ownerId: String(ownerId),
+        title: String(title),
+        issuedAt: String(issuedAt),
+        fileName: file.originalname,
+        pdfData: file.buffer, // ✅ NUEVO
       });
+
+      res.json({ ok: true });
     } catch (err) {
-      console.error("Error /admin/documents/citations:", err);
+      console.error("Error POST /api/admin/documents/citation:", err);
       res.status(500).json({ error: "Error interno" });
     }
   }
@@ -1287,6 +1298,7 @@ app.post(
         title: String(title),
         issuedAt: String(issuedAt),
         fileName: file.originalname,
+        pdfData: file.buffer
       });
 
       res.json({ ok: true });
@@ -1339,20 +1351,29 @@ app.delete(
 );
 
 
-// GET contract (admin) by userId
-app.get(
+// Upload/replace contract for a specific user (admin)
+app.post(
   "/api/admin/documents/contract",
   authMiddleware,
   adminOnlyMiddleware,
-  async (req: AuthRequest, res: Response) => {
+  upload.single("file"),
+  async (req: AuthRequest, res) => {
     try {
-      const userId = String(req.query.userId || "");
-      if (!userId) return res.status(400).json({ error: "Falta userId" });
+      const { ownerId } = req.body;
+      const file = req.file;
 
-      const contract = await getContractForOwner(userId);
-      res.json({ contract });
+      if (!file) return res.status(400).json({ error: "Falta archivo" });
+      if (!ownerId) return res.status(400).json({ error: "Falta ownerId" });
+
+      await upsertContractRecord({
+        ownerId: String(ownerId),
+        fileName: file.originalname,
+        pdfData: file.buffer, // ✅ NUEVO
+      });
+
+      res.json({ ok: true });
     } catch (err) {
-      console.error("Error /admin/documents/contract:", err);
+      console.error("Error POST /api/admin/documents/contract:", err);
       res.status(500).json({ error: "Error interno" });
     }
   }
@@ -1375,6 +1396,7 @@ app.post(
       await upsertContractRecord({
         ownerId: String(ownerId),
         fileName: file.originalname,
+        pdfData: file.buffer
       });
 
       res.json({ ok: true });
@@ -1929,6 +1951,7 @@ app.post("/api/admin/documents/payroll", authMiddleware, adminOnlyMiddleware, up
       year: Number(year),
       month: String(month).padStart(2, "0"),
       fileName: file.originalname,
+      pdfData: file.buffer
     });
 
     res.json({ ok: true });
@@ -2006,6 +2029,7 @@ app.post("/api/admin/documents/citation", authMiddleware, adminOnlyMiddleware, u
       title: String(title),
       issuedAt: String(issuedAt),
       fileName: file.originalname,
+      pdfData: file.buffer
     });
 
     res.json({ ok: true });
@@ -2062,25 +2086,33 @@ app.get("/api/admin/documents/contract", authMiddleware, adminOnlyMiddleware, as
 });
 
 // Upload/replace contract for a specific user (admin)
-app.post("/api/admin/documents/contract", authMiddleware, adminOnlyMiddleware, upload.single("file"), async (req: AuthRequest, res) => {
-  try {
-    const { ownerId } = req.body;
-    const file = req.file;
+app.post(
+  "/api/admin/documents/contract",
+  authMiddleware,
+  adminOnlyMiddleware,
+  upload.single("file"),
+  async (req: AuthRequest, res) => {
+    try {
+      const { ownerId } = req.body;
+      const file = req.file;
 
-    if (!file) return res.status(400).json({ error: "Falta archivo" });
-    if (!ownerId) return res.status(400).json({ error: "Falta ownerId" });
+      if (!file) return res.status(400).json({ error: "Falta archivo" });
+      if (!ownerId) return res.status(400).json({ error: "Falta ownerId" });
 
-    await upsertContractRecord({
-      ownerId: String(ownerId),
-      fileName: file.originalname,
-    });
+      await upsertContractRecord({
+        ownerId: String(ownerId),
+        fileName: file.originalname,
+        pdfData: file.buffer, // ✅ AÑADIR ESTO
+      });
 
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Error POST /api/admin/documents/contract:", err);
-    res.status(500).json({ error: "Error interno" });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error POST /api/admin/documents/contract:", err);
+      res.status(500).json({ error: "Error interno" });
+    }
   }
-});
+);
+
 
 // Download contract for a specific user (admin)
 app.get("/api/admin/documents/contract/download", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
@@ -2117,6 +2149,62 @@ app.delete("/api/admin/documents/contract", authMiddleware, adminOnlyMiddleware,
   }
 });
 
+// helper
+function dataUrlToUint8Array(dataUrl: string) {
+  const m = dataUrl.match(/^data:(.+);base64,(.*)$/);
+  if (!m) throw new Error("Firma inválida (dataUrl)");
+  return Uint8Array.from(Buffer.from(m[2], "base64"));
+}
+
+// Coordenadas A4 en puntos (origen abajo-izquierda)
+// AJUSTABLES si quieres mover la firma
+const SIGN_X = 60;
+const SIGN_Y = 55;
+const SIGN_W = 170;
+const SIGN_H = 85;
+
+app.post("/api/documents/payrolls/:id/sign", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const payrollId = req.params.id;
+
+    // ✅ CORRECCIÓN: en tu JWT es userId, no id
+    const userId = req.user!.userId;
+
+    const { signatureDataUrl } = req.body as { signatureDataUrl?: string };
+    if (!signatureDataUrl) return res.status(400).json({ error: "Falta signatureDataUrl" });
+
+    const p = await getPayrollById(payrollId);
+    if (!p) return res.status(404).json({ error: "Nómina no encontrada" });
+    if (p.owner_id !== userId) return res.status(403).json({ error: "No autorizado" });
+    if (!p.pdf_data) return res.status(400).json({ error: "La nómina no tiene PDF almacenado" });
+
+    const pdfDoc = await PDFDocument.load(p.pdf_data);
+    const page = pdfDoc.getPages()[0];
+
+    const pngBytes = dataUrlToUint8Array(signatureDataUrl);
+    const pngImage = await pdfDoc.embedPng(pngBytes);
+
+    page.drawImage(pngImage, {
+      x: SIGN_X,
+      y: SIGN_Y,
+      width: SIGN_W,
+      height: SIGN_H,
+    });
+
+    const signedBytes = await pdfDoc.save();
+
+    await setPayrollSignedPdf({
+      payrollId,
+      signedPdfData: Buffer.from(signedBytes),
+      signatureDataUrl,
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("Error firmando nómina:", e);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
 
 // -------------------------
 // Healthchecks

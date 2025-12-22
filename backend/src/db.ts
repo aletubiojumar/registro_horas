@@ -587,6 +587,12 @@ export interface DbPayroll {
   month: string;
   file_name: string;
   created_at: Date;
+
+  // PDFs almacenados en BD
+  pdf_data?: Buffer | null;
+  signed_pdf_data?: Buffer | null;
+  signed_at?: Date | null;
+  signature_data_url?: string | null;
 }
 
 export interface DbContract {
@@ -595,6 +601,8 @@ export interface DbContract {
   file_name: string;
   created_at: Date;
   updated_at: Date;
+
+  pdf_data?: Buffer | null;
 }
 
 export interface DbCitation {
@@ -604,6 +612,8 @@ export interface DbCitation {
   issued_at: string;
   file_name: string;
   created_at: Date;
+
+  pdf_data?: Buffer | null;
 }
 
 export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]> {
@@ -619,17 +629,24 @@ export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]>
   return rows;
 }
 
-export async function createPayrollRecord(params: { ownerId: string; year: number; month: string; fileName: string }): Promise<DbPayroll> {
+export async function createPayrollRecord(params: {
+  ownerId: string;
+  year: number;
+  month: string;
+  fileName: string;
+  pdfData: Buffer;
+}): Promise<DbPayroll> {
   const { rows } = await getPool().query<DbPayroll>(
     `
-    INSERT INTO payrolls (owner_id, year, month, file_name)
-    VALUES ($1, $2, $3, $4)
-    RETURNING *
-    `,
-    [params.ownerId, params.year, params.month, params.fileName]
+      INSERT INTO payrolls (owner_id, year, month, file_name, pdf_data)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+      `,
+    [params.ownerId, params.year, params.month, params.fileName, params.pdfData]
   );
   return rows[0];
 }
+
 
 export async function getPayrollById(id: string): Promise<DbPayroll | null> {
   const { rows } = await getPool().query<DbPayroll>(
@@ -661,18 +678,23 @@ export async function getContractForOwner(ownerId: string): Promise<DbContract |
   return rows[0] || null;
 }
 
-export async function upsertContractRecord(params: { ownerId: string; fileName: string }): Promise<DbContract> {
+export async function upsertContractRecord(params: {
+  ownerId: string;
+  fileName: string;
+  pdfData: Buffer;
+}): Promise<DbContract> {
   const { rows } = await getPool().query<DbContract>(
     `
-    INSERT INTO contracts (owner_id, file_name)
-    VALUES ($1, $2)
+    INSERT INTO contracts (owner_id, file_name, pdf_data)
+    VALUES ($1, $2, $3)
     ON CONFLICT (owner_id)
     DO UPDATE SET
       file_name = EXCLUDED.file_name,
+      pdf_data = EXCLUDED.pdf_data,
       updated_at = NOW()
     RETURNING *
     `,
-    [params.ownerId, params.fileName]
+    [params.ownerId, params.fileName, params.pdfData]
   );
   return rows[0];
 }
@@ -694,17 +716,24 @@ export async function listCitationsForUser(ownerId: string): Promise<DbCitation[
   return rows;
 }
 
-export async function createCitationRecord(params: { ownerId: string; title: string; issuedAt: string; fileName: string }): Promise<DbCitation> {
+export async function createCitationRecord(params: {
+  ownerId: string;
+  title: string;
+  issuedAt: string;
+  fileName: string;
+  pdfData: Buffer;
+}): Promise<DbCitation> {
   const { rows } = await getPool().query<DbCitation>(
     `
-    INSERT INTO citations (owner_id, title, issued_at, file_name)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO citations (owner_id, title, issued_at, file_name, pdf_data)
+    VALUES ($1, $2, $3, $4, $5)
     RETURNING *
     `,
-    [params.ownerId, params.title, params.issuedAt, params.fileName]
+    [params.ownerId, params.title, params.issuedAt, params.fileName, params.pdfData]
   );
   return rows[0];
 }
+
 
 export async function getCitationById(id: string): Promise<DbCitation | null> {
   const { rows } = await getPool().query<DbCitation>(
@@ -750,4 +779,22 @@ export async function countAllVacationsForUser(userId: string): Promise<number> 
     [userId]
   );
   return rows[0]?.total ?? 0;
+}
+
+export async function setPayrollSignedPdf(opts: {
+  payrollId: string;
+  signedPdfData: Buffer;
+  signatureDataUrl: string;
+}) {
+  const pool = getPool();
+  await pool.query(
+    `
+    UPDATE payrolls
+    SET signed_pdf_data = $2,
+        signed_at = now(),
+        signature_data_url = $3
+    WHERE id = $1
+    `,
+    [opts.payrollId, opts.signedPdfData, opts.signatureDataUrl]
+  );
 }
