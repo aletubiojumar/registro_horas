@@ -137,6 +137,41 @@ async function ensureDocsSchema() {
       updated_at timestamptz NOT NULL DEFAULT now()
     );
   `);
+
+    // Tablas de horas
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS hours_months (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      year int NOT NULL,
+      month int NOT NULL,
+      signature_data_url text NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(user_id, year, month)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS hours_days (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      month_id uuid NOT NULL REFERENCES hours_months(id) ON DELETE CASCADE,
+      day int NOT NULL,
+      morning_in time NULL,
+      morning_out time NULL,
+      afternoon_in time NULL,
+      afternoon_out time NULL,
+      total_minutes int NOT NULL DEFAULT 0,
+      absence_type text NOT NULL DEFAULT 'none',
+      has_signature boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_hours_months_user ON hours_months(user_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_hours_days_month ON hours_days(month_id);`);
+  
+  console.log("✅ Docs schema listo (payrolls, citations, contracts, hours)");
 }
 
 // -------------------------

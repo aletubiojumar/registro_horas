@@ -100,7 +100,7 @@ export async function getVisibleEventsForUser(userId: string): Promise<DbCalenda
     WHERE
         visibility = 'all'
         OR (visibility = 'only-me' AND owner_id = $1)
-        OR (visibility = 'some' AND $1 = ANY(viewers))
+        OR (visibility = 'some' AND $1::text = ANY(viewers))
     ORDER BY date ASC
     `,
     [userId]
@@ -808,3 +808,4 @@ export async function setPayrollSignedPdf(opts: {
     [opts.payrollId, opts.signedPdfData, opts.signatureDataUrl]
   );
 }
+
