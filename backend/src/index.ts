@@ -880,7 +880,11 @@ app.get("/api/calendar/users", authMiddleware, async (req: AuthRequest, res) => 
 
 app.get("/api/calendar/events", authMiddleware, async (req: AuthRequest, res) => {
   try {
+    console.log("📅 GET /api/calendar/events - Usuario:", req.user!.userId);
+    
     const dbEvents = await getVisibleEventsForUser(req.user!.userId);
+    
+    console.log("✅ Eventos obtenidos:", dbEvents.length);
 
     const events = dbEvents.map((e) => ({
       id: e.id,
@@ -895,8 +899,12 @@ app.get("/api/calendar/events", authMiddleware, async (req: AuthRequest, res) =>
 
     res.json({ events });
   } catch (err) {
-    console.error("Error GET /api/calendar/events:", err);
-    res.status(500).json({ error: "Error interno" });
+    console.error("❌ Error GET /api/calendar/events:", err);
+    console.error("❌ Stack:", err instanceof Error ? err.stack : "No stack");
+    res.status(500).json({ 
+      error: "Error interno al cargar eventos",
+      detail: err instanceof Error ? err.message : String(err)
+    });
   }
 });
 
