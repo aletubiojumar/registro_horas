@@ -140,6 +140,38 @@ async function ensureDocsSchema() {
 }
 
 // -------------------------
+// Calendar Schema (calendar_events)
+// -------------------------
+async function ensureCalendarSchema() {
+  const pool = getPool();
+
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      owner_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+      type text NOT NULL,
+      date date NOT NULL,
+
+      status text NULL, -- 'pending' | 'approved' (para vacaciones)
+      visibility text NOT NULL DEFAULT 'only-me', -- 'only-me' | 'all' | 'some'
+      viewers text[] NULL, -- lista de IDs (uuid en texto) si visibility='some'
+
+      medical_file text NULL,
+
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_calendar_owner ON calendar_events(owner_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_events(date);`);
+}
+
+
+// -------------------------
 // OpenAI
 // -------------------------
 
@@ -2268,7 +2300,8 @@ if (require.main === module) {
     try {
       await initDb();          // ⬅️ IMPORTANTÍSIMO: inicializa pool con Secrets Manager
       await ensureIaSchema();  // ⬅️ crea tablas IA
-      await ensureDocsSchema(); // <-- AÑADIR ESTA LÍNEA
+      await ensureDocsSchema();
+      await ensureCalendarSchema();
 
       const server = app.listen(PORT, HOST, () => {
         console.log("========================================");
