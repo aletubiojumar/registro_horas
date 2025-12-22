@@ -632,21 +632,31 @@ export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]>
 export async function createPayrollRecord(params: {
   ownerId: string;
   year: number;
-  month: string;
+  month: string; // "01".."12"
   fileName: string;
   pdfData: Buffer;
-}): Promise<DbPayroll> {
-  const { rows } = await getPool().query<DbPayroll>(
+}) {
+  const { ownerId, year, month, fileName, pdfData } = params;
+
+  const { rows } = await getPool().query(
     `
-      INSERT INTO payrolls (owner_id, year, month, file_name, pdf_data)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-      `,
-    [params.ownerId, params.year, params.month, params.fileName, params.pdfData]
+        INSERT INTO payrolls (owner_id, year, month, file_name, pdf_data)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (owner_id, year, month)
+        DO UPDATE SET
+          file_name = EXCLUDED.file_name,
+          pdf_data = EXCLUDED.pdf_data,
+          -- si vuelves a subir, tiene sentido resetear la firma anterior
+          signed_pdf_data = NULL,
+          signed_at = NULL,
+          signature_data_url = NULL
+        RETURNING *
+        `,
+    [ownerId, year, month, fileName, pdfData]
   );
+
   return rows[0];
 }
-
 
 export async function getPayrollById(id: string): Promise<DbPayroll | null> {
   const { rows } = await getPool().query<DbPayroll>(

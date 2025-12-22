@@ -94,7 +94,12 @@ async function ensureDocsSchema() {
   const pool = getPool();
 
   // UUIDs con pgcrypto (gen_random_uuid)
-  await pool.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`);
+  // await pool.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS payrolls_owner_year_month_uq
+    ON payrolls (owner_id, year, month);
+  `);
+
 
   // payrolls
   await pool.query(`
