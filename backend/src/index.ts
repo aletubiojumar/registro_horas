@@ -59,7 +59,16 @@ import {
   blockIp,
   unblockIp
 } from "./db";
-import bcrypt from "bcryptjs/umd/types";
+
+import bcrypt from "bcryptjs";
+
+import dotenv from "dotenv";
+
+dotenv.config({
+  path: process.env.NODE_ENV === "production"
+    ? ".env.production"
+    : ".env",
+});
 
 // -------------------------
 // IA Schema
@@ -246,6 +255,7 @@ async function ensureCalendarSchema() {
 // -------------------------
 // OpenAI
 // -------------------------
+console.log("OPENAI_API_KEY loaded:", !!process.env.OPENAI_API_KEY);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
