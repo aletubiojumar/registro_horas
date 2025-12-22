@@ -136,6 +136,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
       });
   };
 
+  // ✅ DESCARGA (ADMIN): nóminas/contrato/citaciones
   const handleDownload = (type: DocType, id?: string) => {
     const url =
       type === "contract"
@@ -193,14 +194,8 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
       {/* NÓMINAS */}
       <section style={sectionStyle}>
         <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Nóminas</h3>
-        <div
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            alignItems: "center",
-            marginBottom: "0.5rem",
-          }}
-        >
+
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
           <input
             ref={payrollInputRef}
             type="file"
@@ -208,17 +203,11 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
             onChange={(e) => setFile(e.target.files?.[0] || null)}
             style={{ flex: 1, color: theme.text }}
           />
-          <select
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            style={inputStyle}
-          >
+          <select value={month} onChange={(e) => setMonth(e.target.value)} style={inputStyle}>
             <option value="">Selecciona mes</option>
             {Array.from({ length: 12 }, (_, i) => (
               <option key={i + 1} value={i + 1}>
-                {new Date(2000, i, 1).toLocaleDateString("es-ES", {
-                  month: "long",
-                })}
+                {new Date(2000, i, 1).toLocaleDateString("es-ES", { month: "long" })}
               </option>
             ))}
           </select>
@@ -347,14 +336,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
       {/* CITACIONES */}
       <section style={sectionStyle}>
         <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Citaciones</h3>
-        <div
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            alignItems: "center",
-            marginBottom: "0.5rem",
-          }}
-        >
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
           <input
             ref={citationInputRef}
             type="file"
@@ -397,6 +379,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
                   {new Date(c.issuedAt).toLocaleDateString("es-ES")}
                 </div>
               </div>
+
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button
                   onClick={() => handleDownload("citation", c.id)}

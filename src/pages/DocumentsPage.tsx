@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
+import SignatureModal from "../components/SignatureModal";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
 
@@ -14,7 +15,12 @@ const DocumentsPage: React.FC = () => {
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [citations, setCitations] = useState<Citation[]>([]);
   const [contract, setContract] = useState<{ fileName: string } | null>(null);
+
   const [selectedMonth, setSelectedMonth] = useState("");
+  const [selectedPayrollId, setSelectedPayrollId] = useState<string | null>(null);
+
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [isSigning, setIsSigning] = useState(false);
 
   const loadDocuments = () => {
     if (!user?.token) return;
@@ -31,15 +37,25 @@ const DocumentsPage: React.FC = () => {
       }).then((r) => (r.ok ? r.json() : Promise.reject())),
     ])
       .then(([pay, con, cit]) => {
-        setPayrolls(pay.payrolls || []);
+        const list: Payroll[] = pay.payrolls || [];
+        setPayrolls(list);
         setContract(con.contract || null);
         setCitations(cit.citations || []);
+
+        // Si el mes seleccionado ya no existe, limpiar selección
+        if (selectedMonth) {
+          const [y, m] = selectedMonth.split("-");
+          const found = list.find((x) => x.year === y && x.month === m);
+          setSelectedPayrollId(found ? found.id : null);
+          if (!found) setSelectedMonth("");
+        }
       })
       .catch(() => alert("Error al cargar documentos"));
   };
 
   useEffect(() => {
     loadDocuments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const monthLabel = (m: string) => {
@@ -50,10 +66,7 @@ const DocumentsPage: React.FC = () => {
     });
   };
 
-  const handleDownload = (
-    type: "payroll" | "contract" | "citation",
-    id?: string
-  ) => {
+  const handleDownload = (type: "payroll" | "contract" | "citation", id?: string) => {
     const url =
       type === "contract"
         ? `${API_BASE_URL}/documents/contract/download`
@@ -69,12 +82,47 @@ const DocumentsPage: React.FC = () => {
           type === "contract"
             ? `contrato_${user!.id}.pdf`
             : `${type}_${id}.pdf`;
+
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = fileName;
         a.click();
       })
       .catch(() => alert("Error al descargar"));
+  };
+
+  const signSelectedPayroll = async (signatureDataUrl: string) => {
+    if (!user?.token) return;
+    if (!selectedPayrollId) {
+      alert("Selecciona una nómina primero.");
+      return;
+    }
+
+    setIsSigning(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/documents/payrolls/${selectedPayrollId}/sign`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ signatureDataUrl }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Error al firmar");
+      }
+
+      alert("✅ Nómina firmada. A partir de ahora se descargará ya firmada.");
+      setIsSignatureModalOpen(false);
+      loadDocuments();
+    } catch (e: any) {
+      console.error(e);
+      alert(`Error al firmar: ${e.message || "Error"}`);
+    } finally {
+      setIsSigning(false);
+    }
   };
 
   if (!user) return null;
@@ -122,11 +170,26 @@ const DocumentsPage: React.FC = () => {
           }}
         >
           <h3 style={{ marginTop: 0 }}>Nóminas</h3>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
             <select
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              style={{ padding: "0.4rem", borderRadius: "0.25rem", border: "1px solid #d1d5db" }}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedMonth(value);
+                if (!value) {
+                  setSelectedPayrollId(null);
+                  return;
+                }
+                const [year, month] = value.split("-");
+                const p = payrolls.find((x) => x.year === year && x.month === month);
+                setSelectedPayrollId(p ? p.id : null);
+              }}
+              style={{
+                padding: "0.4rem",
+                borderRadius: "0.25rem",
+                border: "1px solid #d1d5db",
+              }}
             >
               <option value="">Selecciona mes</option>
               {payrolls.map((p) => (
@@ -135,27 +198,43 @@ const DocumentsPage: React.FC = () => {
                 </option>
               ))}
             </select>
+
             <button
-              disabled={!selectedMonth}
-              onClick={() => {
-                const [year, month] = selectedMonth.split("-");
-                const p = payrolls.find(
-                  (x) => x.year === year && x.month === month
-                )!;
-                handleDownload("payroll", p.id);
-              }}
+              disabled={!selectedPayrollId}
+              onClick={() => handleDownload("payroll", selectedPayrollId!)}
               style={{
                 padding: "0.4rem 0.8rem",
                 borderRadius: "0.25rem",
                 border: "1px solid #2563eb",
                 backgroundColor: "#2563eb",
                 color: "#fff",
-                cursor: "pointer",
+                cursor: !selectedPayrollId ? "not-allowed" : "pointer",
+                opacity: !selectedPayrollId ? 0.6 : 1,
               }}
             >
               Descargar
             </button>
+
+            <button
+              disabled={!selectedPayrollId || isSigning}
+              onClick={() => setIsSignatureModalOpen(true)}
+              style={{
+                padding: "0.4rem 0.8rem",
+                borderRadius: "0.25rem",
+                border: "1px solid #059669",
+                backgroundColor: "#059669",
+                color: "#fff",
+                cursor: !selectedPayrollId || isSigning ? "not-allowed" : "pointer",
+                opacity: !selectedPayrollId || isSigning ? 0.6 : 1,
+              }}
+            >
+              {isSigning ? "Firmando..." : "Firmar nómina"}
+            </button>
           </div>
+
+          <p style={{ marginTop: "0.75rem", marginBottom: 0, fontSize: "0.8rem", color: "#6b7280" }}>
+            Al firmar, la nómina se reemplaza por la versión firmada y se descargará así en adelante.
+          </p>
         </section>
 
         {/* CONTRATO */}
@@ -169,13 +248,7 @@ const DocumentsPage: React.FC = () => {
         >
           <h3 style={{ marginTop: 0 }}>Contrato</h3>
           {contract ? (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>{contract.fileName}</span>
               <button
                 onClick={() => handleDownload("contract")}
@@ -249,6 +322,12 @@ const DocumentsPage: React.FC = () => {
           )}
         </section>
       </main>
+
+      <SignatureModal
+        isOpen={isSignatureModalOpen}
+        onClose={() => setIsSignatureModalOpen(false)}
+        onSave={signSelectedPayroll}
+      />
     </div>
   );
 };
