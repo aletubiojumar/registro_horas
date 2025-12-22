@@ -50,14 +50,16 @@ import {
   deleteCitationRecord,
   setPayrollSignedPdf,
   ensureSecuritySchema,
-  logLoginAttempt
-} from "./db";
 
-function getClientIp(req: any): string | null {
-  const xf = req.headers["x-forwarded-for"];
-  if (typeof xf === "string") return xf.split(",")[0].trim();
-  return req.socket?.remoteAddress ?? null;
-}
+  logLoginAttempt,
+  countRecentFailedLoginAttempts,
+  isIpBlocked,
+  listLoginAttempts,
+  listBlockedIps,
+  blockIp,
+  unblockIp
+} from "./db";
+import bcrypt from "bcryptjs/umd/types";
 
 // -------------------------
 // IA Schema
@@ -96,6 +98,33 @@ async function ensureIaSchema() {
   );
 
   console.log("✅ IA schema listo (ia_chats / ia_messages)");
+
+    // -------------------------
+  // Security: login attempts + IP blocks
+  // -------------------------
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      attempted_username text,
+      success boolean NOT NULL,
+      reason text NOT NULL,
+      ip text,
+      user_agent text
+    );
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_created_at_idx ON login_attempts (created_at DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_username_created_at_idx ON login_attempts (attempted_username, created_at DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_ip_created_at_idx ON login_attempts (ip, created_at DESC);`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blocked_ips (
+      ip text PRIMARY KEY,
+      reason text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
 }
 
 async function ensureDocsSchema() {
@@ -423,135 +452,129 @@ app.use(express.json({ limit: "10mb" }));
 
 app.post("/api/auth/login", async (req: Request, res: Response) => {
   const ip = getClientIp(req);
-  const userAgent = req.headers["user-agent"] || null;
-
-  function getClientIp(req: any) {
-    const xf = req.headers["x-forwarded-for"];
-    if (typeof xf === "string") return xf.split(",")[0].trim();
-    return req.socket?.remoteAddress || null;
-  }
-
-  async function logLoginAttempt(params: {
-    attemptedUsername: string;
-    userId: string | null;
-    success: boolean;
-    reason?: string | null;
-    ip?: string | null;
-    userAgent?: string | null;
-  }) {
-    const pool = getPool();
-    await pool.query(
-      `
-    INSERT INTO login_attempts (attempted_username, user_id, success, reason, ip, user_agent)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    `,
-      [
-        params.attemptedUsername,
-        params.userId,
-        params.success,
-        params.reason ?? null,
-        params.ip ?? null,
-        params.userAgent ?? null,
-      ]
-    );
-  }
+  const userAgent = String(req.headers["user-agent"] || "");
+  const { username, password } = req.body as { username: string; password: string };
 
   try {
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ error: "Usuario y contraseña son obligatorios" });
+    // 0) Bloqueo por IP (manual)
+    if (await isIpBlocked(ip)) {
+      await logLoginAttempt({
+        attemptedUsername: username,
+        success: false,
+        reason: "ip_blocked",
+        ip,
+        userAgent,
+      });
+      return res.status(403).json({ error: "Acceso bloqueado" });
     }
 
+    // 1) Rate limit simple: 5 fallos / 15 min por IP o por username
+    const WINDOW_MIN = 15;
+    const MAX_FAILS = 5;
+
+    const failsByIp = await countRecentFailedLoginAttempts({
+      ip,
+      attemptedUsername: null,
+      windowMinutes: WINDOW_MIN,
+    });
+
+    const failsByUser = await countRecentFailedLoginAttempts({
+      ip: null,
+      attemptedUsername: username,
+      windowMinutes: WINDOW_MIN,
+    });
+
+    if (failsByIp >= MAX_FAILS || failsByUser >= MAX_FAILS) {
+      await logLoginAttempt({
+        attemptedUsername: username,
+        success: false,
+        reason: "rate_limited",
+        ip,
+        userAgent,
+      });
+      return res.status(429).json({ error: "Demasiados intentos. Espera unos minutos." });
+    }
+
+    // 2) Usuario existe / activo
     const user = await getUserByUsername(username);
     if (!user) {
-      console.error(`Login fallido: usuario ${username} no encontrado`);
       await logLoginAttempt({
         attemptedUsername: username,
-        userId: null,
         success: false,
-        reason: "user_not_found",
+        reason: "unknown_user",
         ip,
         userAgent,
       });
-
-      return res.status(401).json({ error: "Credenciales incorrectas" });
+      return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
-    if (!user.is_active) {
-      console.warn(`Login fallido: usuario ${username} desactivado`);
+    if (!user.active) {
       await logLoginAttempt({
         attemptedUsername: username,
-        userId: user.id,
         success: false,
-        reason: "user_inactive",
+        reason: "inactive_user",
         ip,
         userAgent,
       });
-
-      return res.status(403).json({
-        error: "Usuario desactivado. Contacta con un administrador.",
-      });
+      return res.status(403).json({ error: "Usuario desactivado" });
     }
 
-    const passwordOk = await comparePassword(password, user.password_hash);
-    if (!passwordOk) {
-      console.warn(`Login fallido: contraseña incorrecta para ${username}`);
+    // 3) Password
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) {
       await logLoginAttempt({
         attemptedUsername: username,
-        userId: user.id,
         success: false,
         reason: "bad_password",
         ip,
         userAgent,
       });
-
-      return res.status(401).json({ error: "Credenciales incorrectas" });
+      return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
-    const payload: CustomJwtPayload = {
-      userId: user.id,
-      username: user.username,
-      role: user.role,
-    };
-
+    // 4) Login OK
     await logLoginAttempt({
       attemptedUsername: username,
-      userId: user.id,
       success: true,
+      reason: "ok",
       ip,
       userAgent,
     });
 
-    // ✅ CAMBIO: Extender a 7 días para evitar expiraciones diarias
-    const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
-    const refreshToken = jwt.sign(
-      { ...payload, type: "refresh" },
-      process.env.JWT_REFRESH_SECRET || JWT_SECRET + "_refresh",
-      { expiresIn: "30d" }
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: "7d" }
     );
 
+    res.cookie("token", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+    });
+
     res.json({
-      accessToken,
-      refreshToken,
-      expiresIn: "7d", // ✅ Actualizar este valor también
-      user: {
-        id: user.id,
-        username: user.username,
-        fullName: user.full_name,
-        role: user.role,
-      },
+      ok: true,
+      user: { id: user.id, username: user.username, role: user.role },
     });
   } catch (err) {
-    console.error("Error catastrófico en login:", err);
-    res.status(500).json({
-      error: "Error interno del servidor",
-      detail: err instanceof Error ? err.message : "unknown error",
-    });
+    console.error("login error:", err);
+
+    // Fallback: registra “server_error”
+    try {
+      await logLoginAttempt({
+        attemptedUsername: username,
+        success: false,
+        reason: "server_error",
+        ip,
+        userAgent,
+      });
+    } catch {}
+
+    res.status(500).json({ error: "Error interno" });
   }
 });
+
 
 // ✅ También actualizar el refresh para que devuelva tokens de 7 días
 app.post("/api/auth/refresh", async (req: Request, res: Response) => {
@@ -2317,6 +2340,20 @@ function dataUrlToUint8Array(dataUrl: string) {
   return Uint8Array.from(Buffer.from(m[2], "base64"));
 }
 
+function getClientIp(req: Request): string {
+  const xff = req.headers["x-forwarded-for"];
+  const raw =
+    (typeof xff === "string" ? xff.split(",")[0] : Array.isArray(xff) ? xff[0] : "") ||
+    req.socket?.remoteAddress ||
+    (req as any).ip ||
+    "unknown";
+  return String(raw);
+}
+
+
+// ----------------------------------
+// Worker: sign payroll
+// -------------------------
 // Coordenadas A4 en puntos (origen abajo-izquierda)
 // AJUSTABLES si quieres mover la firma
 const SIGN_X = 60;
@@ -2366,6 +2403,77 @@ app.post("/api/documents/payrolls/:id/sign", authMiddleware, async (req: AuthReq
     res.status(500).json({ error: "Error interno" });
   }
 });
+// -------------------------
+// Admin: security
+// -------------------------
+
+app.get(
+  "/api/admin/security/login-attempts",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const limit = Math.min(Number(req.query.limit || 200), 1000);
+      const offset = Math.max(Number(req.query.offset || 0), 0);
+      const username = req.query.username ? String(req.query.username) : null;
+      const ip = req.query.ip ? String(req.query.ip) : null;
+      const onlyFailed = String(req.query.onlyFailed || "0") === "1";
+
+      const rows = await listLoginAttempts({ limit, offset, username, ip, onlyFailed });
+      res.json({ rows });
+    } catch (e) {
+      console.error("Error GET /api/admin/security/login-attempts:", e);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.get(
+  "/api/admin/security/blocked-ips",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (_req: AuthRequest, res: Response) => {
+    try {
+      const rows = await listBlockedIps();
+      res.json({ rows });
+    } catch (e) {
+      console.error("Error GET /api/admin/security/blocked-ips:", e);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.post(
+  "/api/admin/security/blocked-ips",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { ip, reason } = req.body as { ip?: string; reason?: string };
+      if (!ip) return res.status(400).json({ error: "Falta ip" });
+      await blockIp({ ip: String(ip).trim(), reason: reason ? String(reason) : null });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("Error POST /api/admin/security/blocked-ips:", e);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
+
+app.delete(
+  "/api/admin/security/blocked-ips/:ip",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      await unblockIp(String(req.params.ip));
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("Error DELETE /api/admin/security/blocked-ips/:ip:", e);
+      res.status(500).json({ error: "Error interno" });
+    }
+  }
+);
 
 // -------------------------
 // Healthchecks

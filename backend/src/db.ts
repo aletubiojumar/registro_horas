@@ -49,6 +49,7 @@ export interface DbUser {
   avatar_data_url: string | null;
   created_at: Date;
   updated_at: Date;
+  active: boolean;
 }
 
 export interface DbDayForHours {
@@ -812,30 +813,133 @@ export async function ensureSecuritySchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts(attempted_username);`);
 }
 
+// -------- login attempts --------
 export async function logLoginAttempt(params: {
-  attemptedUsername: string;
-  userId: string | null;
+  attemptedUsername: string | null;
   success: boolean;
-  reason?: string | null;
-  ip?: string | null;
-  userAgent?: string | null;
+  reason: string;
+  ip: string | null;
+  userAgent: string | null;
 }) {
   const pool = getPool();
   await pool.query(
     `
-    INSERT INTO login_attempts
-      (attempted_username, user_id, success, reason, ip, user_agent)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    `,
+    INSERT INTO login_attempts (attempted_username, success, reason, ip, user_agent)
+    VALUES ($1, $2, $3, $4, $5)
+  `,
     [
       params.attemptedUsername,
-      params.userId,
       params.success,
-      params.reason ?? null,
-      params.ip ?? null,
-      params.userAgent ?? null,
+      params.reason,
+      params.ip,
+      params.userAgent,
     ]
   );
+}
+
+export async function countRecentFailedLoginAttempts(params: {
+  ip: string | null;
+  attemptedUsername: string | null;
+  windowMinutes: number;
+}): Promise<number> {
+  const pool = getPool();
+
+  const where: string[] = [`success = false`, `created_at > now() - ($1 || ' minutes')::interval`];
+  const values: any[] = [String(params.windowMinutes)];
+
+  if (params.ip) {
+    values.push(params.ip);
+    where.push(`ip = $${values.length}`);
+  }
+
+  if (params.attemptedUsername) {
+    values.push(params.attemptedUsername);
+    where.push(`attempted_username = $${values.length}`);
+  }
+
+  const q = `SELECT COUNT(*)::int AS n FROM login_attempts WHERE ${where.join(" AND ")}`;
+  const r = await pool.query(q, values);
+  return r.rows[0]?.n ?? 0;
+}
+
+export async function listLoginAttempts(params: {
+  limit: number;
+  offset: number;
+  username: string | null;
+  ip: string | null;
+  onlyFailed: boolean;
+}): Promise<
+  Array<{
+    created_at: string;
+    attempted_username: string | null;
+    success: boolean;
+    reason: string;
+    ip: string | null;
+    user_agent: string | null;
+  }>
+> {
+  const pool = getPool();
+
+  const where: string[] = [];
+  const values: any[] = [];
+
+  if (params.onlyFailed) where.push(`success = false`);
+  if (params.username) {
+    values.push(params.username);
+    where.push(`attempted_username = $${values.length}`);
+  }
+  if (params.ip) {
+    values.push(params.ip);
+    where.push(`ip = $${values.length}`);
+  }
+
+  values.push(params.limit);
+  const limitIdx = values.length;
+
+  values.push(params.offset);
+  const offsetIdx = values.length;
+
+  const q = `
+    SELECT created_at, attempted_username, success, reason, ip, user_agent
+    FROM login_attempts
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY created_at DESC
+    LIMIT $${limitIdx} OFFSET $${offsetIdx}
+  `;
+  const r = await pool.query(q, values);
+  return r.rows;
+}
+
+// -------- blocked ips --------
+
+export async function isIpBlocked(ip: string): Promise<boolean> {
+  if (!ip) return false;
+  const pool = getPool();
+  const r = await pool.query(`SELECT 1 FROM blocked_ips WHERE ip = $1`, [ip]);
+  return (r.rowCount ?? 0) > 0;
+}
+
+export async function listBlockedIps(): Promise<Array<{ ip: string; reason: string | null; created_at: string }>> {
+  const pool = getPool();
+  const r = await pool.query(`SELECT ip, reason, created_at FROM blocked_ips ORDER BY created_at DESC`);
+  return r.rows;
+}
+
+export async function blockIp(params: { ip: string; reason: string | null }) {
+  const pool = getPool();
+  await pool.query(
+    `
+    INSERT INTO blocked_ips (ip, reason)
+    VALUES ($1, $2)
+    ON CONFLICT (ip) DO UPDATE SET reason = EXCLUDED.reason
+  `,
+    [params.ip, params.reason]
+  );
+}
+
+export async function unblockIp(ip: string) {
+  const pool = getPool();
+  await pool.query(`DELETE FROM blocked_ips WHERE ip = $1`, [ip]);
 }
 
 export async function setPayrollSignedPdf(opts: {
@@ -855,7 +959,3 @@ export async function setPayrollSignedPdf(opts: {
     [opts.payrollId, opts.signedPdfData, opts.signatureDataUrl]
   );
 }
-
-
-
-
