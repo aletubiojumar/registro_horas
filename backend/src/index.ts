@@ -1037,17 +1037,19 @@ app.get("/api/documents/payrolls/:id/download", authMiddleware, async (req: Auth
       return res.status(404).json({ error: "Nómina no encontrada" });
     }
 
-    const fakeBuffer = Buffer.from(
-      `CONTENIDO DE LA NÓMINA ${pay.file_name}\nAÑO: ${pay.year} MES: ${pay.month}\n`
-    );
+    // ✅ Si está firmada, devolver la firmada; si no, la original
+    const pdf = pay.signed_pdf_data ?? pay.pdf_data;
+    if (!pdf) return res.status(404).json({ error: "PDF no disponible" });
+
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${pay.file_name}"`);
-    res.send(fakeBuffer);
+    res.send(pdf);
   } catch (err) {
     console.error("Error /documents/payrolls/:id/download:", err);
     res.status(500).json({ error: "Error interno" });
   }
 });
+
 
 // Contract worker
 app.post("/api/documents/contract", authMiddleware, upload.single("file"), async (req: AuthRequest, res: Response) => {
@@ -1094,10 +1096,12 @@ app.get("/api/documents/contract/download", authMiddleware, async (req: AuthRequ
     const c = await getContractForOwner(req.user!.userId);
     if (!c) return res.status(404).json({ error: "Contrato no encontrado" });
 
-    const fakeBuffer = Buffer.from(`CONTRATO DE TRABAJO\nFichero: ${c.file_name}\n`);
+    const pdf = c.pdf_data;
+    if (!pdf) return res.status(404).json({ error: "PDF no disponible" });
+
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${c.file_name}"`);
-    res.send(fakeBuffer);
+    res.send(pdf);
   } catch (err) {
     console.error("Error downloading contract:", err);
     res.status(500).json({ error: "Error interno" });
@@ -1130,12 +1134,12 @@ app.get("/api/documents/citations/:id/download", authMiddleware, async (req: Aut
       return res.status(404).json({ error: "Citación no encontrada" });
     }
 
-    const fakeBuffer = Buffer.from(
-      `CITACIÓN: ${cit.title}\nFecha: ${cit.issued_at}\nFichero: ${cit.file_name}\n`
-    );
+    const pdf = cit.pdf_data;
+    if (!pdf) return res.status(404).json({ error: "PDF no disponible" });
+
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${cit.file_name}"`);
-    res.send(fakeBuffer);
+    res.send(pdf);
   } catch (err) {
     console.error("Error /documents/citations/:id/download:", err);
     res.status(500).json({ error: "Error interno" });
