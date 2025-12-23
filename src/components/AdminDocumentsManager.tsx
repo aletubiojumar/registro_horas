@@ -52,6 +52,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
       .then((r) => r.json())
       .then((d) => setPayrolls(d.payrolls || []));
 
+    // ✅ Aquí el backend debe devolver: citations: [{..., status: "pending"|"accepted"|"rejected"}]
     fetch(`${API}/admin/documents/citations?userId=${user.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -179,7 +180,11 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
     outline: "none",
   };
 
-  const smallBtn = (bg: string, border: string, color: string): React.CSSProperties => ({
+  const smallBtn = (
+    bg: string,
+    border: string,
+    color: string
+  ): React.CSSProperties => ({
     padding: "0.2rem 0.5rem",
     fontSize: "0.75rem",
     borderRadius: "0.25rem",
@@ -189,13 +194,44 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
     cursor: "pointer",
   });
 
+  // ✅ Estado de citación: Pendiente / Aceptada / Rechazada
+  const statusLabel = (s?: string) => {
+    if (s === "accepted")
+      return { text: "Aceptada", bg: "#dcfce7", color: "#166534" };
+    if (s === "rejected")
+      return { text: "Rechazada", bg: "#fee2e2", color: "#991b1b" };
+    return { text: "Pendiente", bg: "#e5e7eb", color: "#374151" };
+  };
+
+  const statusBadgeStyle = (s?: string): React.CSSProperties => {
+    const st = statusLabel(s);
+    return {
+      padding: "0.15rem 0.45rem",
+      borderRadius: 999,
+      background: st.bg,
+      color: st.color,
+      fontSize: "0.75rem",
+      fontWeight: 700,
+      lineHeight: 1.2,
+      display: "inline-block",
+      whiteSpace: "nowrap",
+    };
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
       {/* NÓMINAS */}
       <section style={sectionStyle}>
         <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Nóminas</h3>
 
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "0.5rem",
+            alignItems: "center",
+            marginBottom: "0.5rem",
+          }}
+        >
           <input
             ref={payrollInputRef}
             type="file"
@@ -203,11 +239,17 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
             onChange={(e) => setFile(e.target.files?.[0] || null)}
             style={{ flex: 1, color: theme.text }}
           />
-          <select value={month} onChange={(e) => setMonth(e.target.value)} style={inputStyle}>
+          <select
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            style={inputStyle}
+          >
             <option value="">Selecciona mes</option>
             {Array.from({ length: 12 }, (_, i) => (
               <option key={i + 1} value={i + 1}>
-                {new Date(2000, i, 1).toLocaleDateString("es-ES", { month: "long" })}
+                {new Date(2000, i, 1).toLocaleDateString("es-ES", {
+                  month: "long",
+                })}
               </option>
             ))}
           </select>
@@ -336,7 +378,14 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
       {/* CITACIONES */}
       <section style={sectionStyle}>
         <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Citaciones</h3>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "0.5rem",
+            alignItems: "center",
+            marginBottom: "0.5rem",
+          }}
+        >
           <input
             ref={citationInputRef}
             type="file"
@@ -361,41 +410,74 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
           </button>
         </div>
 
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {citations.map((c) => (
-            <li
-              key={c.id}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "0.4rem 0",
-                borderBottom: `1px solid ${theme.border}`,
-              }}
-            >
-              <div>
-                <div style={{ fontSize: "0.85rem" }}>{c.title}</div>
-                <div style={{ fontSize: "0.75rem", color: theme.muted }}>
-                  {new Date(c.issuedAt).toLocaleDateString("es-ES")}
-                </div>
-              </div>
+        {/* Cabecera de columnas (opcional pero útil) */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "0.35rem 0",
+            borderBottom: `1px solid ${theme.border}`,
+            marginBottom: "0.25rem",
+            color: theme.muted,
+            fontSize: "0.75rem",
+          }}
+        >
+          <span>Detalle</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <span>Estado</span>
+            <span style={{ width: 150, textAlign: "right" }}>Acciones</span>
+          </div>
+        </div>
 
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button
-                  onClick={() => handleDownload("citation", c.id)}
-                  style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
-                >
-                  Descargar
-                </button>
-                <button
-                  onClick={() => handleDelete("citation", c.id)}
-                  style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
-                >
-                  Borrar
-                </button>
-              </div>
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {citations.length === 0 ? (
+            <li style={{ padding: "0.5rem 0", color: theme.muted, fontSize: "0.85rem" }}>
+              No hay citaciones.
             </li>
-          ))}
+          ) : (
+            citations.map((c) => (
+              <li
+                key={c.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "0.4rem 0",
+                  borderBottom: `1px solid ${theme.border}`,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: "0.85rem" }}>{c.title}</div>
+                  <div style={{ fontSize: "0.75rem", color: theme.muted }}>
+                    {c.issuedAt ? new Date(c.issuedAt).toLocaleDateString("es-ES") : ""}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                  {/* ✅ NUEVO: Estado */}
+                  <span style={statusBadgeStyle(c.status)} title={`Estado: ${statusLabel(c.status).text}`}>
+                    {statusLabel(c.status).text}
+                  </span>
+
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      onClick={() => handleDownload("citation", c.id)}
+                      style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
+                    >
+                      Descargar
+                    </button>
+                    <button
+                      onClick={() => handleDelete("citation", c.id)}
+                      style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
+                    >
+                      Borrar
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))
+          )}
         </ul>
       </section>
     </div>

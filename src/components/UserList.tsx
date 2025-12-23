@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 
 export interface AdminUser {
   id: string;
@@ -44,9 +44,29 @@ const UserList: React.FC<UserListProps> = ({
   onDeleteUser,
   theme,
 }) => {
-  if (!users.length) {
-    return <p style={{ color: theme.muted }}>No hay usuarios.</p>;
-  }
+  // ✅ Hooks siempre arriba, antes de cualquier return condicional
+  const [query, setQuery] = useState("");
+
+  const filteredUsers = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return users;
+
+    return users.filter((u) => {
+      const haystack = [
+        u.fullName,
+        u.email,
+        u.role,
+        u.workerFirstName,
+        u.workerLastName,
+        u.workerNif,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(needle);
+    });
+  }, [users, query]);
 
   const itemStyle = (selected: boolean): React.CSSProperties => ({
     padding: "0.6rem 0.65rem",
@@ -56,7 +76,7 @@ const UserList: React.FC<UserListProps> = ({
       : `1px solid ${theme.border}`,
     backgroundColor: selected
       ? theme.darkMode
-        ? "#0b3a6f" // azul oscuro elegante
+        ? "#0b3a6f"
         : "#dbeafe"
       : theme.cardBg,
     color: theme.text,
@@ -76,31 +96,6 @@ const UserList: React.FC<UserListProps> = ({
     color,
     cursor: "pointer",
   });
-
-  const [query, setQuery] = React.useState("");
-
-  const normalizedQuery = query.trim().toLowerCase();
-
-  const filteredUsers = React.useMemo(() => {
-    if (!normalizedQuery) return users;
-
-    return users.filter((u) => {
-      const haystack = [
-        u.fullName,
-        u.email,
-        u.role,
-        u.workerFirstName,
-        u.workerLastName,
-        u.workerNif,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(normalizedQuery);
-    });
-  }, [users, normalizedQuery]);
-
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
@@ -142,14 +137,24 @@ const UserList: React.FC<UserListProps> = ({
         )}
       </div>
 
-      {/* Resultado vacío */}
-      {!filteredUsers.length ? (
+      {/* Contador */}
+      {users.length > 0 && (
+        <div style={{ fontSize: "0.75rem", color: theme.muted }}>
+          Mostrando {filteredUsers.length} de {users.length}
+        </div>
+      )}
+
+      {/* Estado lista */}
+      {users.length === 0 ? (
+        <p style={{ color: theme.muted }}>No hay usuarios.</p>
+      ) : filteredUsers.length === 0 ? (
         <p style={{ color: theme.muted, fontSize: "0.85rem", marginTop: "0.25rem" }}>
           No hay usuarios que coincidan.
         </p>
       ) : (
         filteredUsers.map((u) => {
           const selected = selectedUser?.id === u.id;
+
           return (
             <div key={u.id} style={itemStyle(selected)}>
               <button
@@ -192,15 +197,15 @@ const UserList: React.FC<UserListProps> = ({
                   style={
                     u.isActive
                       ? actionBtn(
-                        theme.darkMode ? "#3b0f18" : "#fee2e2",
-                        theme.dangerText,
-                        theme.dangerText
-                      )
+                          theme.darkMode ? "#3b0f18" : "#fee2e2",
+                          theme.dangerText,
+                          theme.dangerText
+                        )
                       : actionBtn(
-                        theme.darkMode ? "#0f2a1a" : "#dcfce7",
-                        "#22c55e",
-                        "#22c55e"
-                      )
+                          theme.darkMode ? "#0f2a1a" : "#dcfce7",
+                          "#22c55e",
+                          "#22c55e"
+                        )
                   }
                 >
                   {u.isActive ? "Desactivar" : "Activar"}
