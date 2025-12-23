@@ -551,6 +551,15 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   const ok = await bcrypt.compare(passwordRaw, user.password_hash);
+  
+  console.log("LOGIN BODY DEBUG", {
+    hasEmail: typeof req.body?.email === "string",
+    hasPassword: typeof req.body?.password === "string",
+    emailRaw: req.body?.email,
+    passwordLen: typeof req.body?.password === "string" ? req.body.password.length : null,
+    contentType: req.headers["content-type"],
+  });
+
   if (!ok) {
     await logLoginAttempt({
       attemptedUsername: emailNormalized,
