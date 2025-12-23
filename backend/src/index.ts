@@ -536,7 +536,21 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   // 🔑 password
-  const ok = await bcrypt.compare(password, user.password_hash);
+  const emailRaw = (req.body?.email ?? "").toString();
+  const passwordRaw = (req.body?.password ?? "").toString();
+
+  if (!emailNormalized || !passwordRaw) {
+    await logLoginAttempt({
+      attemptedUsername: emailNormalized || "(empty)",
+      success: false,
+      reason: "missing_credentials",
+      ip,
+      userAgent,
+    });
+    return res.status(400).json({ error: "Email y contraseña obligatorios" });
+  }
+
+  const ok = await bcrypt.compare(passwordRaw, user.password_hash);
   if (!ok) {
     await logLoginAttempt({
       attemptedUsername: emailNormalized,
@@ -2580,14 +2594,14 @@ app.get("/api/health", (_req, res) => {
 app.get("/api/debug/check-user", async (req, res) => {
   try {
     const email = "admin@jumaringenieria.es";
-    
+
     // Buscar usuario por email
     const user = await getUserByEmail(email);
-    
+
     if (!user) {
-      return res.json({ 
-        found: false, 
-        message: "Usuario no encontrado con ese email" 
+      return res.json({
+        found: false,
+        message: "Usuario no encontrado con ese email"
       });
     }
 
