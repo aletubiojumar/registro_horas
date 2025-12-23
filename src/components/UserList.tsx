@@ -77,79 +77,92 @@ const UserList: React.FC<UserListProps> = ({
     cursor: "pointer",
   });
 
+  const [query, setQuery] = React.useState("");
+
+  const normalizedQuery = query.trim().toLowerCase();
+
+  const filteredUsers = React.useMemo(() => {
+    if (!normalizedQuery) return users;
+
+    return users.filter((u) => {
+      const haystack = [
+        u.fullName,
+        u.email,
+        u.role,
+        u.workerFirstName,
+        u.workerLastName,
+        u.workerNif,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedQuery);
+    });
+  }, [users, normalizedQuery]);
+
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-      {users.map((u) => {
+      {filteredUsers.map((u) => {
         const selected = selectedUser?.id === u.id;
 
         return (
-          <div key={u.id} style={itemStyle(selected)}>
-            <button
-              type="button"
-              onClick={() => onSelect(u)}
-              style={{
-                all: "unset",
-                cursor: "pointer",
-                display: "block",
-                width: "100%",
-              }}
-            >
-              <div style={{ fontWeight: 600 }}>{u.fullName}</div>
-
-              <div style={{ fontSize: "0.75rem", color: theme.muted }}>
-                {u.email} · {u.role}
-              </div>
-
-              <div
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {/* Buscador */}
+            <div style={{ display: "flex", gap: "0.35rem" }}>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar por nombre, email, rol, NIF…"
                 style={{
-                  fontSize: "0.75rem",
-                  color: u.isActive ? "#22c55e" : "#ef4444",
+                  width: "100%",
+                  padding: "0.45rem 0.6rem",
+                  borderRadius: "0.45rem",
+                  border: `1px solid ${theme.border}`,
+                  backgroundColor: theme.cardBg,
+                  color: theme.text,
+                  outline: "none",
+                  fontSize: "0.85rem",
                 }}
-              >
-                {u.isActive ? "Activo" : "Baja"}
-              </div>
-            </button>
-
-            <div
-              style={{
-                marginTop: "0.35rem",
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "0.35rem",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => onToggleActive(u)}
-                style={
-                  u.isActive
-                    ? actionBtn(
-                        theme.darkMode ? "#3b0f18" : "#fee2e2",
-                        theme.dangerText,
-                        theme.dangerText
-                      )
-                    : actionBtn(
-                        theme.darkMode ? "#0f2a1a" : "#dcfce7",
-                        "#22c55e",
-                        "#22c55e"
-                      )
-                }
-              >
-                {u.isActive ? "Desactivar" : "Activar"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onDeleteUser(u)}
-                style={actionBtn(
-                  theme.darkMode ? "#3b0f18" : "#fee2e2",
-                  theme.dangerText,
-                  theme.dangerText
-                )}
-              >
-                Eliminar
-              </button>
+              />
+              {query.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  style={{
+                    padding: "0.45rem 0.6rem",
+                    borderRadius: "0.45rem",
+                    border: `1px solid ${theme.border}`,
+                    backgroundColor: theme.cardBg,
+                    color: theme.muted,
+                    cursor: "pointer",
+                    fontSize: "0.85rem",
+                    whiteSpace: "nowrap",
+                  }}
+                  title="Limpiar búsqueda"
+                >
+                  ✕
+                </button>
+              )}
             </div>
+
+            {/* Resultado vacío */}
+            {!filteredUsers.length ? (
+              <p style={{ color: theme.muted, fontSize: "0.85rem", marginTop: "0.25rem" }}>
+                No hay usuarios que coincidan.
+              </p>
+            ) : (
+              filteredUsers.map((u) => {
+                const selected = selectedUser?.id === u.id;
+
+                return (
+                  <div key={u.id} style={itemStyle(selected)}>
+                    {/* ... el resto igual ... */}
+                  </div>
+                );
+              })
+            )}
           </div>
         );
       })}
