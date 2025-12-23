@@ -2576,6 +2576,39 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+// TEMPORAL - Solo para debug, eliminar después
+app.get("/api/debug/check-user", async (req, res) => {
+  try {
+    const email = "admin@jumaringenieria.es";
+    
+    // Buscar usuario por email
+    const user = await getUserByEmail(email);
+    
+    if (!user) {
+      return res.json({ 
+        found: false, 
+        message: "Usuario no encontrado con ese email" 
+      });
+    }
+
+    // Probar el password
+    const testPassword = "Admin1234!";
+    const isValid = await bcrypt.compare(testPassword, user.password_hash);
+
+    res.json({
+      found: true,
+      email: user.email,
+      username: user.email,
+      role: user.role,
+      active: user.active,
+      passwordValid: isValid,
+      hashPreview: user.password_hash.substring(0, 30) + "..."
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // -------------------------
 // Root + fallbacks
 // -------------------------
