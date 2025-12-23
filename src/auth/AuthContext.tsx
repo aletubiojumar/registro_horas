@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export interface LoggedUser {
   id: string;
-  username: string;
+  email: string;
   fullName: string;
   role: "worker" | "admin";
   token: string; // Access token

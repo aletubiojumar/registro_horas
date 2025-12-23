@@ -75,7 +75,7 @@ const AdminPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Formulario de creación
-  const [newUsername, setNewUsername] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const [creatingUser, setCreatingUser] = useState(false);
   const [createErrorMsg, setCreateErrorMsg] = useState<string | null>(null);
 
@@ -154,17 +154,24 @@ const AdminPage: React.FC = () => {
   const handleCreateUser = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (!user?.token) return;
-    if (!newUsername.trim()) {
-      setCreateErrorMsg("Nombre obligatorio");
+    if (!newEmail.trim()) {
+      setCreateErrorMsg("Email obligatorio");
       return;
     }
+
+    const emailInput = newEmail.trim();
+    if (!emailInput) {
+      setCreateErrorMsg("Email obligatorio");
+      return;
+    }
+
     setCreatingUser(true);
     setCreateErrorMsg(null);
 
     const ts = Date.now();
     const body = {
-      username: `user${ts}`,
-      fullName: newUsername.trim(),
+      email: `user${ts}@jumaringenieria.es`,
+      fullName: newEmail.trim(),
       password: `temp${ts}`,
       role: "worker",
       vacationDaysPerYear: 23,
@@ -183,7 +190,7 @@ const AdminPage: React.FC = () => {
       const { user: created } = await res.json();
       setUsers((p) => [...p, created]);
       setSelectedUser(created);
-      setNewUsername("");
+      setNewEmail("");
       setSelectedTab("data");
     } catch (e: any) {
       setCreateErrorMsg(e.message);
@@ -256,7 +263,7 @@ const AdminPage: React.FC = () => {
           </div>
           {user && (
             <div style={{ fontSize: "0.8rem", color: colors.muted }}>
-              Sesión iniciada como <strong>{user.username}</strong>
+              Sesión iniciada como <strong>{user.email}</strong>
             </div>
           )}
           <button
@@ -281,8 +288,8 @@ const AdminPage: React.FC = () => {
           <h2 style={{ marginBottom: "0.5rem" }}>Crear usuario</h2>
           <form onSubmit={handleCreateUser} style={{ fontSize: "0.8rem" }}>
             <input
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
               placeholder="Nombre completo"
               style={{
                 width: "100%",

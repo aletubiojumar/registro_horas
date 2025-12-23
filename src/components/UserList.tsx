@@ -2,7 +2,7 @@ import React from "react";
 
 export interface AdminUser {
   id: string;
-  username: string;
+  email: string;
   fullName: string;
   role: string;
   isActive: boolean;
@@ -97,7 +97,7 @@ const UserList: React.FC<UserListProps> = ({
               <div style={{ fontWeight: 600 }}>{u.fullName}</div>
 
               <div style={{ fontSize: "0.75rem", color: theme.muted }}>
-                {u.username} · {u.role}
+                {u.email} · {u.role}
               </div>
 
               <div

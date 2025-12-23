@@ -16,7 +16,7 @@ const UserDataEditor: React.FC<UserDataEditorProps> = ({
 }) => {
   const { user: admin, logout } = useAuth();
 
-  const [username, setUsername] = useState(user.username || "");
+  const [email, setEmail] = useState(user.email || "");
   const [password, setPassword] = useState(""); // Vacío por defecto, solo se actualiza si se modifica
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState(user.fullName || "");
@@ -45,7 +45,7 @@ const UserDataEditor: React.FC<UserDataEditorProps> = ({
 
   // Resetear campos cuando cambia el usuario seleccionado
   useEffect(() => {
-    setUsername(user.username || "");
+    setEmail(user.email || "");
     setPassword(""); // No mostramos la contraseña actual
     setShowPassword(false);
     setFullName(user.fullName || "");
@@ -78,7 +78,7 @@ const UserDataEditor: React.FC<UserDataEditorProps> = ({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          username,
+          email: email,
           password: password || undefined, // Solo enviamos si hay algo
           fullName,
           vacationDaysPerYear,
@@ -156,8 +156,8 @@ const UserDataEditor: React.FC<UserDataEditorProps> = ({
           </label>
           <input
             type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             style={{
               width: "100%",
               padding: "0.4rem",

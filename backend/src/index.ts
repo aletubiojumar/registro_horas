@@ -557,7 +557,7 @@ app.post("/api/auth/login", async (req, res) => {
     userAgent,
   });
 
-  const token = jwt.sign(
+  const accessToken = jwt.sign(
     {
       userId: user.id,
       email: user.email,
@@ -567,17 +567,28 @@ app.post("/api/auth/login", async (req, res) => {
     { expiresIn: "7d" }
   );
 
-  res.cookie("token", token, {
+  const refreshToken = jwt.sign(
+    {
+      userId: user.id,
+    },
+    process.env.JWT_REFRESH_SECRET || JWT_SECRET + "_refresh",
+    { expiresIn: "30d" }
+  );
+
+  res.cookie("token", accessToken, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
   });
 
   res.json({
-    ok: true,
+    accessToken,
+    refreshToken,
+    expiresIn: "7d",
     user: {
       id: user.id,
       email: user.email,
+      fullName: user.full_name || "",
       role: user.role,
     },
   });
@@ -1651,7 +1662,7 @@ app.get("/api/admin/users", authMiddleware, adminOnlyMiddleware, async (req: Aut
     res.json({
       users: all.map((u: DbUser) => ({
         id: u.id,
-        username: u.email,
+        email: u.email,
         fullName: u.full_name,
         role: u.role,
         isActive: u.is_active,

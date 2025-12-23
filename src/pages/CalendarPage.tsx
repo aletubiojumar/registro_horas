@@ -70,7 +70,7 @@ const CalendarPage: React.FC = () => {
 
     // En CalendarPage.tsx, al inicio del componente
     console.log("🔄 CalendarPage montado:", {
-        user: user?.username,
+        user: user?.email,
         month: currentMonth + 1,
         year: currentYear,
         tokenPresent: !!user?.token
@@ -98,7 +98,7 @@ const CalendarPage: React.FC = () => {
     useEffect(() => {
         if (!user?.token) return;
 
-        console.log("📅 Cargando calendario para usuario:", user.username);
+        console.log("📅 Cargando calendario para usuario:", user.email);
         console.log("📅 Mes actual:", currentMonth + 1, "/", currentYear);
 
         const loadCalendarData = async () => {
@@ -315,7 +315,7 @@ const CalendarPage: React.FC = () => {
                 <div>
                     <div style={{ fontSize: "1rem", fontWeight: 600 }}>Mi Calendario</div>
                     <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-                        Usuario: <strong>{user?.username}</strong> ({user?.fullName})
+                        Usuario: <strong>{user?.email}</strong> ({user?.fullName})
                     </div>
                 </div>
                 <button

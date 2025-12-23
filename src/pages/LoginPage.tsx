@@ -52,7 +52,7 @@ const LoginPage = () => {
 
   const [darkMode, setDarkMode] = useState(() => readTheme());
 
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberUser, setRememberUser] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -75,7 +75,7 @@ const LoginPage = () => {
   useEffect(() => {
     const remembered = localStorage.getItem("rememberedUser");
     if (remembered) {
-      setUsername(remembered);
+      setEmail(remembered);
       setRememberUser(true);
     }
   }, []);
@@ -235,8 +235,8 @@ const LoginPage = () => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!username || !password) {
-      setErrorMsg("Introduce usuario y contraseña.");
+    if (!email || !password) {
+      setErrorMsg("Introduce email y contraseña.");
       return;
     }
 
@@ -245,7 +245,7 @@ const LoginPage = () => {
       const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       const data = await res.json().catch(() => null);
@@ -268,13 +268,13 @@ const LoginPage = () => {
         { accessToken, refreshToken, expiresIn },
         {
           id: userData.id,
-          username: userData.username,
+          email: userData.email,
           fullName: userData.fullName,
           role: userData.role,
         }
       );
 
-      if (rememberUser) localStorage.setItem("rememberedUser", username);
+      if (rememberUser) localStorage.setItem("rememberedUser", email);
       else localStorage.removeItem("rememberedUser");
 
       if (userData.role === "admin") navigate("/admin", { replace: true });
@@ -308,16 +308,16 @@ const LoginPage = () => {
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: "0.85rem" }}>
-            <label style={styles.labelStyle} htmlFor="username">
-              Usuario
+            <label style={styles.labelStyle} htmlFor="email">
+              Email corporativo
             </label>
             <input
-              id="username"
-              type="text"
+              id="email"
+              type="email"
               style={styles.inputStyle}
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
           </div>
 

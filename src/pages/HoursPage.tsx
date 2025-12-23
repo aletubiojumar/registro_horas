@@ -915,7 +915,7 @@ const HoursPage = () => {
             Registro diario de jornada
           </div>
           <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-            Usuario: <strong>{user.username}</strong> ({user.fullName})
+            Usuario: <strong>{user.email}</strong> ({user.fullName})
           </div>
         </div>
         <button

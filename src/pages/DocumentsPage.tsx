@@ -142,7 +142,7 @@ const DocumentsPage: React.FC = () => {
         <div>
           <div style={{ fontSize: "1rem", fontWeight: 600 }}>Mis Documentos</div>
           <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-            Usuario: <strong>{user.username}</strong> ({user.fullName})
+            Sesión iniciada como <strong>{user.email}</strong>
           </div>
         </div>
         <button
