@@ -60,15 +60,15 @@ import {
   unblockIp
 } from "./db";
 
-import bcrypt from "bcryptjs";
-
+import bcrypt from "bcrypt";
 import dotenv from "dotenv";
 
+const envFile = process.env.NODE_ENV === "production" ? ".env.production" : ".env";
+
 dotenv.config({
-  path: process.env.NODE_ENV === "production"
-    ? ".env.production"
-    : ".env",
+  path: path.resolve(__dirname, "../../../", envFile),
 });
+
 
 // -------------------------
 // IA Schema
@@ -108,7 +108,7 @@ async function ensureIaSchema() {
 
   console.log("✅ IA schema listo (ia_chats / ia_messages)");
 
-    // -------------------------
+  // -------------------------
   // Security: login attempts + IP blocks
   // -------------------------
   await pool.query(`
@@ -374,6 +374,30 @@ const findMonthHours = async (
 };
 
 // -------------------------
+// App y config básica
+// -------------------------
+const app = express();
+
+app.use(
+  cors({
+    origin: [
+      "https://dukmh3dsas6ny.cloudfront.net",
+      "http://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com",
+      "https://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com",
+      "http://localhost:5173",
+      "https://localhost:5173",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+
+app.use(express.json({ limit: "10mb" }));
+app.set("trust proxy", 1);
+
+// -------------------------
 // Middlewares
 // -------------------------
 
@@ -430,36 +454,10 @@ function adminOnlyMiddleware(
   next();
 }
 
-// -------------------------
-// App y config básica
-// -------------------------
-
-const app = express();
-
-app.use(
-  cors({
-    origin: [
-      "https://dukmh3dsas6ny.cloudfront.net",
-      "http://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com",
-      "https://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com",
-      "http://localhost:5173",
-      "https://localhost:5173",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-
-app.use(express.json({ limit: "10mb" }));
 
 // -------------------------
 // Auth
 // -------------------------
-
-// En tu archivo index.ts, reemplaza la sección de login:
-
 app.post("/api/auth/login", async (req: Request, res: Response) => {
   const ip = getClientIp(req);
   const userAgent = String(req.headers["user-agent"] || "");
@@ -579,14 +577,13 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
         ip,
         userAgent,
       });
-    } catch {}
+    } catch { }
 
     res.status(500).json({ error: "Error interno" });
   }
 });
 
-
-// ✅ También actualizar el refresh para que devuelva tokens de 7 días
+// Actualizar el refresh para que devuelva tokens de 7 días
 app.post("/api/auth/refresh", async (req: Request, res: Response) => {
   try {
     const { refreshToken } = req.body;

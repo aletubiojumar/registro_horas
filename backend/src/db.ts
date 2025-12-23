@@ -5,26 +5,36 @@ import { getDbSecret } from "./aws/getDbSecret";
 let pool: Pool;
 
 export async function initDb() {
-  const secret = await getDbSecret();
+  if (process.env.DATABASE_URL) {
+    console.log("🟢 Usando DATABASE_URL (modo local)");
 
-  console.log("✅ Conectando a RDS vía Secrets Manager", {
-    host: secret.host,
-    user: secret.username,
-    database: secret.dbname,
-  });
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+    });
 
-  pool = new Pool({
-    host: secret.host,
-    port: secret.port ?? 5432,
-    user: secret.username,
-    password: secret.password,
-    database: secret.dbname,
-    ssl: { rejectUnauthorized: false },
-  });
+  } else {
+    console.log("🟡 Usando AWS Secrets Manager (producción)");
+
+    const secret = await getDbSecret();
+
+    pool = new Pool({
+      host: secret.host,
+      user: secret.username,
+      password: secret.password,
+      database: secret.dbname,
+      port: secret.port,
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+
+  await pool.query("SELECT 1");
+  console.log("✅ Conexión a BD OK");
 }
 
-export function getPool(): Pool {
-  if (!pool) throw new Error("Pool no inicializado. Llama antes a initDb()");
+export function getPool() {
+  if (!pool) {
+    throw new Error("DB no inicializada");
+  }
   return pool;
 }
 
