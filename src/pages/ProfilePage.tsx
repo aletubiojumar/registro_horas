@@ -224,7 +224,7 @@ const ProfilePage: React.FC = () => {
       {/* Datos personales */}
       <section style={{ border: "1px solid #e5e7eb", borderRadius: "0.5rem", padding: "1rem", marginBottom: "1.5rem" }}>
         <h3>Datos personales</h3>
-        {row("Email corporativo", profile.email)}
+        {/* {row("Email corporativo", profile.email)} */}
         {row("Nombre completo", profile.fullName)}
         {row("Apellidos", profile.workerLastName)}
         {row("Nombre", profile.workerFirstName)}
