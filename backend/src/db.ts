@@ -48,7 +48,7 @@ export interface DbUser {
   full_name: string;
   role: "worker" | "admin";
   is_active: boolean;
-  active: boolean;
+  // active: boolean;
   vacation_days_per_year: number | null;
   work_center: string | null;
   company_cif: string | null;

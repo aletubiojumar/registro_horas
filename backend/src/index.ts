@@ -524,7 +524,7 @@ app.post("/api/auth/login", async (req, res) => {
 
   // 👤 usuario por EMAIL
   const user = await getUserByEmail(emailNormalized);
-  if (!user || !user.active) {
+  if (!user || !user.is_active) {
     await logLoginAttempt({
       attemptedUsername: emailNormalized,
       success: false,
@@ -551,14 +551,6 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   const ok = await bcrypt.compare(passwordRaw, user.password_hash);
-  
-  console.log("LOGIN BODY DEBUG", {
-    hasEmail: typeof req.body?.email === "string",
-    hasPassword: typeof req.body?.password === "string",
-    emailRaw: req.body?.email,
-    passwordLen: typeof req.body?.password === "string" ? req.body.password.length : null,
-    contentType: req.headers["content-type"],
-  });
 
   if (!ok) {
     await logLoginAttempt({
@@ -2022,43 +2014,6 @@ app.patch("/api/admin/calendar/events/:id/vacation", authMiddleware, adminOnlyMi
 });
 
 // -------------------------
-// Debug
-// -------------------------
-
-app.get("/api/debug/db-users", async (_req, res) => {
-  try {
-    const users = await dbListUsers();
-    res.json({
-      count: users.length,
-      users: users.map((u: DbUser) => ({
-        id: u.id,
-        username: u.email,
-        fullName: u.full_name,
-        role: u.role,
-        isActive: u.is_active,
-      })),
-    });
-  } catch (err) {
-    console.error("Error en /api/debug/db-users:", err);
-    res.status(500).json({ error: "Error consultando la BD" });
-  }
-});
-
-app.post("/api/debug/db-users/demo", async (_req, res) => {
-  try {
-    const newUser = await dbCreateDemoUser();
-    res.json({
-      id: newUser.id,
-      username: newUser.email,
-      fullName: newUser.full_name,
-    });
-  } catch (err) {
-    console.error("Error en /api/debug/db-users/demo:", err);
-    res.status(500).json({ error: "Error insertando demo en la BD" });
-  }
-});
-
-// -------------------------
 // Perito IA - Chat con GPT
 // -------------------------
 
@@ -2597,39 +2552,6 @@ app.get("/health", (_req, res) => {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
-});
-
-// TEMPORAL - Solo para debug, eliminar después
-app.get("/api/debug/check-user", async (req, res) => {
-  try {
-    const email = "admin@jumaringenieria.es";
-
-    // Buscar usuario por email
-    const user = await getUserByEmail(email);
-
-    if (!user) {
-      return res.json({
-        found: false,
-        message: "Usuario no encontrado con ese email"
-      });
-    }
-
-    // Probar el password
-    const testPassword = "Admin1234!";
-    const isValid = await bcrypt.compare(testPassword, user.password_hash);
-
-    res.json({
-      found: true,
-      email: user.email,
-      username: user.email,
-      role: user.role,
-      active: user.active,
-      passwordValid: isValid,
-      hashPreview: user.password_hash.substring(0, 30) + "..."
-    });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
 });
 
 // -------------------------
