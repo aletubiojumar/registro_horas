@@ -240,6 +240,16 @@ export async function getUserByUsername(username: string): Promise<DbUser | null
   return rows[0] || null;
 }
 
+export async function getUserByEmail(email: string) {
+  const { rows } = await pool.query(
+    `SELECT id, email, password_hash, role, active
+     FROM users
+     WHERE email = $1`,
+    [email]
+  );
+  return rows[0] || null;
+}
+
 export async function getUserById(id: string): Promise<DbUser | null> {
   const { rows } = await getPool().query<DbUser>(
     `

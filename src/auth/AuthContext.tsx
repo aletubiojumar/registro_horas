@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const storedUser = localStorage.getItem(STORAGE_KEY);
       const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-      
+
       if (storedUser && accessToken) {
         const parsed = JSON.parse(storedUser);
         setUser({ ...parsed, token: accessToken });
@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const { accessToken } = await res.json();
         localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-        
+
         setUser(prev => prev ? { ...prev, token: accessToken } : null);
         return accessToken;
       } catch (err) {
@@ -133,9 +133,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Si es 401, intentar refrescar el token y reintentar
     if (response.status === 401) {
       console.log('🔄 Token expirado, refrescando...');
-      
+
       const newToken = await refreshAccessToken();
-      
+
       if (!newToken) {
         throw new Error('Failed to refresh token');
       }
@@ -154,11 +154,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      loading, 
-      login, 
-      logout, 
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      login,
+      logout,
       refreshAccessToken,
       fetchWithAuth // ✅ NUEVO
     }}>

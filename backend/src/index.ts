@@ -14,7 +14,7 @@ import {
   dbCreateDemoUser,
   DbUser,
   getUserById,
-  getUserByUsername,
+  // getUserByUsername,
   listUsers,
   createUser as dbCreateUser,
   updateUser as dbUpdateUser,
@@ -221,6 +221,89 @@ async function ensureDocsSchema() {
 }
 
 // -------------------------
+// App y config básica
+// -------------------------
+const app = express();
+
+app.set("trust proxy", true);
+
+app.use(
+  cors({
+    origin: [
+      "https://dukmh3dsas6ny.cloudfront.net",
+      "http://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com",
+      "https://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com",
+      "http://localhost:5173",
+      "https://localhost:5173",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+
+app.use(express.json({ limit: "10mb" }));
+app.set("trust proxy", 1);
+
+// -------------------------
+// Middlewares
+// -------------------------
+
+function authMiddleware(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    res.status(401).json({ error: "Missing Authorization header" });
+    return;
+  }
+
+  const [scheme, token] = authHeader.split(" ");
+
+  if (scheme !== "Bearer" || !token) {
+    res.status(401).json({ error: "Invalid Authorization format" });
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload | string;
+
+    if (typeof decoded === "string") {
+      res.status(401).json({ error: "Invalid token payload" });
+      return;
+    }
+
+    const payload: CustomJwtPayload = {
+      userId: decoded.userId as string,
+      username: decoded.username as string,
+      role: decoded.role as Role,
+    };
+
+    req.user = payload;
+    next();
+  } catch (err) {
+    console.error("JWT error:", err);
+    res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
+function adminOnlyMiddleware(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  if (!req.user || req.user.role !== "admin") {
+    res.status(403).json({ error: "Forbidden: admin only" });
+    return;
+  }
+  next();
+}
+
+// -------------------------
 // Calendar Schema (calendar_events)
 // -------------------------
 async function ensureCalendarSchema() {
@@ -374,213 +457,128 @@ const findMonthHours = async (
 };
 
 // -------------------------
-// App y config básica
-// -------------------------
-const app = express();
-
-app.use(
-  cors({
-    origin: [
-      "https://dukmh3dsas6ny.cloudfront.net",
-      "http://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com",
-      "https://registro-horas-frontend.s3-website.eu-south-2.amazonaws.com",
-      "http://localhost:5173",
-      "https://localhost:5173",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-
-app.use(express.json({ limit: "10mb" }));
-app.set("trust proxy", 1);
-
-// -------------------------
-// Middlewares
-// -------------------------
-
-function authMiddleware(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): void {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    res.status(401).json({ error: "Missing Authorization header" });
-    return;
-  }
-
-  const [scheme, token] = authHeader.split(" ");
-
-  if (scheme !== "Bearer" || !token) {
-    res.status(401).json({ error: "Invalid Authorization format" });
-    return;
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload | string;
-
-    if (typeof decoded === "string") {
-      res.status(401).json({ error: "Invalid token payload" });
-      return;
-    }
-
-    const payload: CustomJwtPayload = {
-      userId: decoded.userId as string,
-      username: decoded.username as string,
-      role: decoded.role as Role,
-    };
-
-    req.user = payload;
-    next();
-  } catch (err) {
-    console.error("JWT error:", err);
-    res.status(401).json({ error: "Invalid or expired token" });
-  }
-}
-
-function adminOnlyMiddleware(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): void {
-  if (!req.user || req.user.role !== "admin") {
-    res.status(403).json({ error: "Forbidden: admin only" });
-    return;
-  }
-  next();
-}
-
-
-// -------------------------
 // Auth
 // -------------------------
-app.post("/api/auth/login", async (req: Request, res: Response) => {
+app.post("/api/auth/login", async (req, res) => {
   const ip = getClientIp(req);
   const userAgent = String(req.headers["user-agent"] || "");
-  const { username, password } = req.body as { username: string; password: string };
 
-  try {
-    // 0) Bloqueo por IP (manual)
-    if (await isIpBlocked(ip)) {
-      await logLoginAttempt({
-        attemptedUsername: username,
-        success: false,
-        reason: "ip_blocked",
-        ip,
-        userAgent,
-      });
-      return res.status(403).json({ error: "Acceso bloqueado" });
-    }
+  const { email, password } = req.body as {
+    email?: string;
+    password?: string;
+  };
 
-    // 1) Rate limit simple: 5 fallos / 15 min por IP o por username
-    const WINDOW_MIN = 15;
-    const MAX_FAILS = 5;
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email y contraseña requeridos" });
+  }
 
-    const failsByIp = await countRecentFailedLoginAttempts({
-      ip,
-      attemptedUsername: null,
-      windowMinutes: WINDOW_MIN,
-    });
+  const emailNormalized = email.trim().toLowerCase();
 
-    const failsByUser = await countRecentFailedLoginAttempts({
-      ip: null,
-      attemptedUsername: username,
-      windowMinutes: WINDOW_MIN,
-    });
+  // 🔐 dominio corporativo obligatorio
+  if (!emailNormalized.endsWith("@jumaringenieria.es")) {
+    return res.status(403).json({ error: "Dominio no autorizado" });
+  }
 
-    if (failsByIp >= MAX_FAILS || failsByUser >= MAX_FAILS) {
-      await logLoginAttempt({
-        attemptedUsername: username,
-        success: false,
-        reason: "rate_limited",
-        ip,
-        userAgent,
-      });
-      return res.status(429).json({ error: "Demasiados intentos. Espera unos minutos." });
-    }
-
-    // 2) Usuario existe / activo
-    const user = await getUserByUsername(username);
-    if (!user) {
-      await logLoginAttempt({
-        attemptedUsername: username,
-        success: false,
-        reason: "unknown_user",
-        ip,
-        userAgent,
-      });
-      return res.status(401).json({ error: "Credenciales inválidas" });
-    }
-
-    if (!user.active) {
-      await logLoginAttempt({
-        attemptedUsername: username,
-        success: false,
-        reason: "inactive_user",
-        ip,
-        userAgent,
-      });
-      return res.status(403).json({ error: "Usuario desactivado" });
-    }
-
-    // 3) Password
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) {
-      await logLoginAttempt({
-        attemptedUsername: username,
-        success: false,
-        reason: "bad_password",
-        ip,
-        userAgent,
-      });
-      return res.status(401).json({ error: "Credenciales inválidas" });
-    }
-
-    // 4) Login OK
+  // 🚫 bloqueo IP
+  if (await isIpBlocked(ip)) {
     await logLoginAttempt({
-      attemptedUsername: username,
-      success: true,
-      reason: "ok",
+      attemptedUsername: emailNormalized,
+      success: false,
+      reason: "ip_blocked",
       ip,
       userAgent,
     });
-
-    const token = jwt.sign(
-      { userId: user.id, username: user.username, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    res.cookie("token", token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: true,
-    });
-
-    res.json({
-      ok: true,
-      user: { id: user.id, username: user.username, role: user.role },
-    });
-  } catch (err) {
-    console.error("login error:", err);
-
-    // Fallback: registra “server_error”
-    try {
-      await logLoginAttempt({
-        attemptedUsername: username,
-        success: false,
-        reason: "server_error",
-        ip,
-        userAgent,
-      });
-    } catch { }
-
-    res.status(500).json({ error: "Error interno" });
+    return res.status(403).json({ error: "Acceso bloqueado" });
   }
+
+  // ⏱️ rate limit (por IP + email)
+  const WINDOW_MIN = 15;
+  const MAX_FAILS = 5;
+
+  const failsByIp = await countRecentFailedLoginAttempts({
+    ip,
+    attemptedUsername: null,
+    windowMinutes: WINDOW_MIN,
+  });
+
+  const failsByEmail = await countRecentFailedLoginAttempts({
+    ip: null,
+    attemptedUsername: emailNormalized,
+    windowMinutes: WINDOW_MIN,
+  });
+
+  if (failsByIp >= MAX_FAILS || failsByEmail >= MAX_FAILS) {
+    await logLoginAttempt({
+      attemptedUsername: emailNormalized,
+      success: false,
+      reason: "rate_limited",
+      ip,
+      userAgent,
+    });
+    return res
+      .status(429)
+      .json({ error: "Demasiados intentos. Espera unos minutos." });
+  }
+
+  // 👤 usuario por EMAIL
+  const user = await getUserByEmail(emailNormalized);
+  if (!user || !user.active) {
+    await logLoginAttempt({
+      attemptedUsername: emailNormalized,
+      success: false,
+      reason: "invalid_user",
+      ip,
+      userAgent,
+    });
+    return res.status(401).json({ error: "Credenciales inválidas" });
+  }
+
+  // 🔑 password
+  const ok = await bcrypt.compare(password, user.password_hash);
+  if (!ok) {
+    await logLoginAttempt({
+      attemptedUsername: emailNormalized,
+      success: false,
+      reason: "bad_password",
+      ip,
+      userAgent,
+    });
+    return res.status(401).json({ error: "Credenciales inválidas" });
+  }
+
+  // ✅ OK
+  await logLoginAttempt({
+    attemptedUsername: emailNormalized,
+    success: true,
+    reason: "ok",
+    ip,
+    userAgent,
+  });
+
+  const token = jwt.sign(
+    {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+  });
+
+  res.json({
+    ok: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    },
+  });
 });
 
 // Actualizar el refresh para que devuelva tokens de 7 días
@@ -1436,7 +1434,6 @@ app.delete(
   }
 );
 
-
 // Upload citation for a specific user
 app.post(
   "/api/admin/documents/citation",
@@ -1540,7 +1537,6 @@ app.delete(
     }
   }
 );
-
 
 // Upload/replace contract for a specific user (admin)
 app.post(
@@ -1673,86 +1669,17 @@ app.get("/api/admin/users", authMiddleware, adminOnlyMiddleware, async (req: Aut
   }
 });
 
-app.post("/api/admin/users", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res: Response) => {
-  const {
-    username,
-    fullName,
-    password,
-    role,
-    vacationDaysPerYear,
-    workCenter,
-    companyCif,
-    companyCcc,
-    workerLastName,
-    workerFirstName,
-    workerNif,
-    workerSsNumber,
-  } = req.body as any;
-
-  if (!username || !fullName || !password) {
-    res.status(400).json({ error: "username, fullName y password son obligatorios" });
-    return;
-  }
-
-  try {
-    const existing = await getUserByUsername(username);
-    if (existing) {
-      res.status(400).json({ error: "Ya existe un usuario con ese username" });
-      return;
-    }
-
-    const newUser = await dbCreateUser({
-      username,
-      full_name: fullName,
-      password,
-      role: role ?? "worker",
-      vacation_days_per_year: vacationDaysPerYear,
-      work_center: workCenter ?? null,
-      company_cif: companyCif ?? null,
-      company_ccc: companyCcc ?? null,
-      worker_last_name: workerLastName ?? null,
-      worker_first_name: workerFirstName ?? null,
-      worker_nif: workerNif ?? null,
-      worker_ss_number: workerSsNumber ?? null,
-    });
-
-    res.json({
-      user: {
-        id: newUser.id,
-        username: newUser.username,
-        fullName: newUser.full_name,
-        role: newUser.role,
-        isActive: newUser.is_active,
-        vacationDaysPerYear: newUser.vacation_days_per_year,
-        workCenter: newUser.work_center,
-        companyCif: newUser.company_cif,
-        companyCcc: newUser.company_ccc,
-        workerLastName: newUser.worker_last_name,
-        workerFirstName: newUser.worker_first_name,
-        workerNif: newUser.worker_nif,
-        workerSsNumber: newUser.worker_ss_number,
-      },
-    });
-  } catch (err) {
-    console.error("Error creando usuario:", err);
-    res.status(500).json({ error: "Error interno de servidor" });
-  }
-});
-
-app.patch("/api/admin/users/:id", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-
-  try {
-    const targetUser = await getUserById(id);
-    if (!targetUser) {
-      res.status(404).json({ error: "Usuario no encontrado" });
-      return;
-    }
-
+app.post(
+  "/api/admin/users",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
     const {
-      username,
-      password,
+      email: emailRaw,
+      username, // compat: si el front aún manda username
       fullName,
+      password,
+      role,
       vacationDaysPerYear,
       workCenter,
       companyCif,
@@ -1763,56 +1690,186 @@ app.patch("/api/admin/users/:id", authMiddleware, adminOnlyMiddleware, async (re
       workerSsNumber,
     } = req.body as any;
 
-    if (username !== undefined && username !== targetUser.username) {
-      const existingUser = await getUserByUsername(username);
-      if (existingUser && existingUser.id !== id) {
-        res.status(400).json({ error: "Ya existe un usuario con ese username" });
-        return;
+    const email = String(emailRaw ?? username ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (!email || !fullName || !password) {
+      return res.status(400).json({
+        error: "email, fullName y password son obligatorios",
+      });
+    }
+
+    // ✅ Reglas email: formato básico + dominio obligatorio
+    const emailOk =
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
+      email.endsWith("@jumaringenieria.es");
+
+    if (!emailOk) {
+      return res.status(400).json({
+        error: "El email debe ser válido y terminar en @jumaringenieria.es",
+      });
+    }
+
+    try {
+      // 🔁 Cambia esto a tu función real: getUserByEmail
+      // Si todavía no la tienes, te dejo abajo un wrapper rápido.
+      const existing = await getUserByEmail(email);
+      if (existing) {
+        return res.status(400).json({
+          error: "Ya existe un usuario con ese email",
+        });
       }
+
+      const newUser = await dbCreateUser({
+        // ⬇️ A PARTIR DE AQUÍ, usa email como identificador
+        email,
+        full_name: fullName,
+        password,
+        role: role ?? "worker",
+        vacation_days_per_year: vacationDaysPerYear,
+        work_center: workCenter ?? null,
+        company_cif: companyCif ?? null,
+        company_ccc: companyCcc ?? null,
+        worker_last_name: workerLastName ?? null,
+        worker_first_name: workerFirstName ?? null,
+        worker_nif: workerNif ?? null,
+        worker_ss_number: workerSsNumber ?? null,
+      });
+
+      return res.json({
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          fullName: newUser.full_name,
+          role: newUser.role,
+          isActive: newUser.is_active,
+          vacationDaysPerYear: newUser.vacation_days_per_year,
+          workCenter: newUser.work_center,
+          companyCif: newUser.company_cif,
+          companyCcc: newUser.company_ccc,
+          workerLastName: newUser.worker_last_name,
+          workerFirstName: newUser.worker_first_name,
+          workerNif: newUser.worker_nif,
+          workerSsNumber: newUser.worker_ss_number,
+        },
+      });
+    } catch (err) {
+      console.error("Error creando usuario:", err);
+      return res.status(500).json({ error: "Error interno de servidor" });
     }
-
-    const updated = await dbUpdateUser(id, {
-      username,
-      password,
-      full_name: fullName,
-      vacation_days_per_year: vacationDaysPerYear,
-      work_center: workCenter ?? null,
-      company_cif: companyCif ?? null,
-      company_ccc: companyCcc ?? null,
-      worker_last_name: workerLastName ?? null,
-      worker_first_name: workerFirstName ?? null,
-      worker_nif: workerNif ?? null,
-      worker_ss_number: workerSsNumber ?? null,
-    });
-
-    if (!updated) {
-      res.status(404).json({ error: "Usuario no encontrado tras actualizar" });
-      return;
-    }
-
-    res.json({
-      ok: true,
-      user: {
-        id: updated.id,
-        username: updated.username,
-        fullName: updated.full_name,
-        role: updated.role,
-        isActive: updated.is_active,
-        vacationDaysPerYear: updated.vacation_days_per_year,
-        workCenter: updated.work_center,
-        companyCif: updated.company_cif,
-        companyCcc: updated.company_ccc,
-        workerLastName: updated.worker_last_name,
-        workerFirstName: updated.worker_first_name,
-        workerNif: updated.worker_nif,
-        workerSsNumber: updated.worker_ss_number,
-      },
-    });
-  } catch (err) {
-    console.error("Error actualizando usuario:", err);
-    res.status(500).json({ error: "Error interno de servidor" });
   }
-});
+);
+
+app.patch(
+  "/api/admin/users/:id",
+  authMiddleware,
+  adminOnlyMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+
+    try {
+      const targetUser = await getUserById(id);
+      if (!targetUser) {
+        return res.status(404).json({ error: "Usuario no encontrado" });
+      }
+
+      const {
+        email: emailRaw,
+        username, // compat si aún lo manda el front
+        password,
+        fullName,
+        vacationDaysPerYear,
+        workCenter,
+        companyCif,
+        companyCcc,
+        workerLastName,
+        workerFirstName,
+        workerNif,
+        workerSsNumber,
+      } = req.body as any;
+
+      // ✅ Detecta si el cliente "quiere tocar" el email
+      const wantsEmailUpdate = emailRaw !== undefined || username !== undefined;
+
+      // ✅ Normaliza SOLO si lo quieren tocar
+      const nextEmail = wantsEmailUpdate
+        ? String(emailRaw ?? username ?? "").trim().toLowerCase()
+        : undefined;
+
+      const currentEmail = String(targetUser.email ?? "").trim().toLowerCase();
+
+      // ✅ Si quieren tocarlo, no permitas vacío
+      if (wantsEmailUpdate && !nextEmail) {
+        return res.status(400).json({ error: "El email es obligatorio" });
+      }
+
+      // ✅ Si cambia, valida dominio + unicidad
+      if (wantsEmailUpdate && nextEmail !== currentEmail) {
+        const emailOk =
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail) &&
+          nextEmail.endsWith("@jumaringenieria.es");
+
+        if (!emailOk) {
+          return res.status(400).json({
+            error: "El email debe ser válido y terminar en @jumaringenieria.es",
+          });
+        }
+
+        const existingUser = await getUserByEmail(nextEmail);
+        if (existingUser && String(existingUser.id) !== String(id)) {
+          return res.status(400).json({ error: "Ya existe un usuario con ese email" });
+        }
+      }
+
+      // ✅ Construye el update SIN pasar undefined (evita machacar campos)
+      const updateData: any = {
+        password,
+        full_name: fullName,
+        vacation_days_per_year: vacationDaysPerYear,
+        work_center: workCenter ?? null,
+        company_cif: companyCif ?? null,
+        company_ccc: companyCcc ?? null,
+        worker_last_name: workerLastName ?? null,
+        worker_first_name: workerFirstName ?? null,
+        worker_nif: workerNif ?? null,
+        worker_ss_number: workerSsNumber ?? null,
+      };
+
+      if (wantsEmailUpdate) {
+        updateData.email = nextEmail; // ✅ aquí NUNCA será undefined
+      }
+
+      const updated = await dbUpdateUser(id, updateData);
+
+      if (!updated) {
+        return res.status(404).json({ error: "Usuario no encontrado tras actualizar" });
+      }
+
+      return res.json({
+        ok: true,
+        user: {
+          id: updated.id,
+          email: updated.email,
+          fullName: updated.full_name,
+          role: updated.role,
+          isActive: updated.is_active,
+          vacationDaysPerYear: updated.vacation_days_per_year,
+          workCenter: updated.work_center,
+          companyCif: updated.company_cif,
+          companyCcc: updated.company_ccc,
+          workerLastName: updated.worker_last_name,
+          workerFirstName: updated.worker_first_name,
+          workerNif: updated.worker_nif,
+          workerSsNumber: updated.worker_ss_number,
+        },
+      });
+    } catch (err) {
+      console.error("Error actualizando usuario:", err);
+      return res.status(500).json({ error: "Error interno de servidor" });
+    }
+  }
+);
 
 app.patch("/api/admin/users/:id/deactivate", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
@@ -2293,7 +2350,7 @@ app.post(
       await upsertContractRecord({
         ownerId: String(ownerId),
         fileName: file.originalname,
-        pdfData: file.buffer, // ✅ AÑADIR ESTO
+        pdfData: file.buffer,
       });
 
       res.json({ ok: true });
@@ -2347,22 +2404,31 @@ function dataUrlToUint8Array(dataUrl: string) {
   return Uint8Array.from(Buffer.from(m[2], "base64"));
 }
 
-function getClientIp(req: Request): string {
-  const xff = req.headers["x-forwarded-for"];
-  const raw =
-    (typeof xff === "string" ? xff.split(",")[0] : Array.isArray(xff) ? xff[0] : "") ||
-    req.socket?.remoteAddress ||
-    (req as any).ip ||
-    "unknown";
-  return String(raw);
-}
+// function getClientIp(req: Request): string {
+//   const xff = req.headers["x-forwarded-for"];
+//   const raw =
+//     (typeof xff === "string" ? xff.split(",")[0] : Array.isArray(xff) ? xff[0] : "") ||
+//     req.socket?.remoteAddress ||
+//     (req as any).ip ||
+//     "unknown";
+//   return String(raw);
+// }
 
+export function getClientIp(req: Request): string {
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.length > 0) {
+    return xff.split(",")[0].trim();
+  }
+  if (Array.isArray(xff) && xff.length > 0) {
+    return xff[0];
+  }
+  return req.ip ?? req.socket?.remoteAddress ?? "unknown";
+}
 
 // ----------------------------------
 // Worker: sign payroll
 // -------------------------
 // Coordenadas A4 en puntos (origen abajo-izquierda)
-// AJUSTABLES si quieres mover la firma
 const SIGN_X = 60;
 const SIGN_Y = 55;
 const SIGN_W = 170;
@@ -2371,8 +2437,6 @@ const SIGN_H = 85;
 app.post("/api/documents/payrolls/:id/sign", authMiddleware, async (req: AuthRequest, res) => {
   try {
     const payrollId = req.params.id;
-
-    // ✅ CORRECCIÓN: en tu JWT es userId, no id
     const userId = req.user!.userId;
 
     const { signatureDataUrl } = req.body as { signatureDataUrl?: string };
