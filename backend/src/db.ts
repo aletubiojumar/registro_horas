@@ -43,11 +43,12 @@ export function getPool() {
 // ==============================
 export interface DbUser {
   id: string;
-  username: string;
+  email: string;
   password_hash: string;
   full_name: string;
   role: "worker" | "admin";
   is_active: boolean;
+  active: boolean;
   vacation_days_per_year: number | null;
   work_center: string | null;
   company_cif: string | null;
@@ -59,7 +60,6 @@ export interface DbUser {
   avatar_data_url: string | null;
   created_at: Date;
   updated_at: Date;
-  active: boolean;
 }
 
 export interface DbDayForHours {
@@ -227,24 +227,9 @@ export async function comparePassword(plain: string, hash: string): Promise<bool
 // ==============================
 // Consultas de usuario
 // ==============================
-export async function getUserByUsername(username: string): Promise<DbUser | null> {
+export async function getUserByEmail(email: string): Promise<DbUser | null> {
   const { rows } = await getPool().query<DbUser>(
-    `
-    SELECT *
-    FROM users
-    WHERE username = $1
-    LIMIT 1
-    `,
-    [username]
-  );
-  return rows[0] || null;
-}
-
-export async function getUserByEmail(email: string) {
-  const { rows } = await pool.query(
-    `SELECT id, email, password_hash, role, active
-     FROM users
-     WHERE email = $1`,
+    `SELECT * FROM users WHERE email = $1 LIMIT 1`,
     [email]
   );
   return rows[0] || null;
@@ -252,12 +237,7 @@ export async function getUserByEmail(email: string) {
 
 export async function getUserById(id: string): Promise<DbUser | null> {
   const { rows } = await getPool().query<DbUser>(
-    `
-    SELECT *
-    FROM users
-    WHERE id = $1
-    LIMIT 1
-    `,
+    `SELECT * FROM users WHERE id = $1 LIMIT 1`,
     [id]
   );
   return rows[0] || null;
@@ -265,17 +245,13 @@ export async function getUserById(id: string): Promise<DbUser | null> {
 
 export async function listUsers(): Promise<DbUser[]> {
   const { rows } = await getPool().query<DbUser>(
-    `
-    SELECT *
-    FROM users
-    ORDER BY created_at ASC
-    `
+    `SELECT * FROM users ORDER BY created_at ASC`
   );
   return rows;
 }
 
 export async function createUser(input: {
-  username: string;
+  email: string;
   full_name: string;
   password: string;
   role?: "worker" | "admin";
@@ -293,7 +269,7 @@ export async function createUser(input: {
   const { rows } = await getPool().query<DbUser>(
     `
     INSERT INTO users (
-      username,
+      email,
       password_hash,
       full_name,
       role,
@@ -307,18 +283,11 @@ export async function createUser(input: {
       worker_nif,
       worker_ss_number
     )
-    VALUES (
-      $1, $2, $3,
-      COALESCE($4, 'worker'),
-      TRUE,
-      COALESCE($5, 23),
-      $6, $7, $8,
-      $9, $10, $11, $12
-    )
+    VALUES ($1, $2, $3, $4, TRUE, $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING *
     `,
     [
-      input.username,
+      input.email,
       password_hash,
       input.full_name,
       input.role ?? "worker",
@@ -339,7 +308,7 @@ export async function createUser(input: {
 export async function updateUser(
   id: string,
   fields: Partial<{
-    username: string;
+    email: string;
     password: string;
     full_name: string;
     vacation_days_per_year: number;
@@ -364,7 +333,7 @@ export async function updateUser(
     idx++;
   };
 
-  if (fields.username !== undefined) push("username", fields.username);
+  if (fields.email !== undefined) push("email", fields.email);
   if (fields.full_name !== undefined) push("full_name", fields.full_name);
   if (fields.vacation_days_per_year !== undefined) push("vacation_days_per_year", fields.vacation_days_per_year);
   if (fields.work_center !== undefined) push("work_center", fields.work_center);
@@ -386,12 +355,7 @@ export async function updateUser(
 
   setParts.push(`updated_at = NOW()`);
 
-  const query = `
-    UPDATE users
-    SET ${setParts.join(", ")}
-    WHERE id = $${idx}
-    RETURNING *
-  `;
+  const query = `UPDATE users SET ${setParts.join(", ")} WHERE id = $${idx} RETURNING *`;
   values.push(id);
 
   const { rows } = await getPool().query<DbUser>(query, values);
@@ -400,11 +364,7 @@ export async function updateUser(
 
 export async function setUserActive(id: string, active: boolean): Promise<void> {
   await getPool().query(
-    `
-    UPDATE users
-    SET is_active = $1, updated_at = NOW()
-    WHERE id = $2
-    `,
+    `UPDATE users SET is_active = $1, updated_at = NOW() WHERE id = $2`,
     [active, id]
   );
 }
@@ -414,11 +374,7 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 export async function countActiveAdmins(excludeId?: string): Promise<number> {
-  let query = `
-    SELECT COUNT(*)::int AS count
-    FROM users
-    WHERE role = 'admin' AND is_active = TRUE
-  `;
+  let query = `SELECT COUNT(*)::int AS count FROM users WHERE role = 'admin' AND is_active = TRUE`;
   const params: any[] = [];
 
   if (excludeId) {
@@ -436,7 +392,7 @@ export async function dbListUsers(): Promise<DbUser[]> {
 
 export async function dbCreateDemoUser(): Promise<DbUser> {
   return createUser({
-    username: "demo",
+    email: "demo@jumaringenieria.es",
     full_name: "Usuario Demo BD",
     password: "demo123",
     role: "worker",
@@ -454,12 +410,7 @@ function mapTimeToHHMM(value: string | null): string | undefined {
 
 export async function getMonthHoursForUser(userId: string, year: number, month: number): Promise<DbMonthHoursForApi | null> {
   const { rows: monthRows } = await getPool().query(
-    `
-    SELECT id, signature_data_url
-    FROM hours_months
-    WHERE user_id = $1 AND year = $2 AND month = $3
-    LIMIT 1
-    `,
+    `SELECT id, signature_data_url FROM hours_months WHERE user_id = $1 AND year = $2 AND month = $3 LIMIT 1`,
     [userId, year, month]
   );
 
@@ -471,14 +422,8 @@ export async function getMonthHoursForUser(userId: string, year: number, month: 
   const { rows: dayRows } = await getPool().query(
     `
     SELECT
-      day,
-      morning_in,
-      morning_out,
-      afternoon_in,
-      afternoon_out,
-      total_minutes,
-      absence_type,
-      has_signature
+      day, morning_in, morning_out, afternoon_in, afternoon_out,
+      total_minutes, absence_type, has_signature
     FROM hours_days
     WHERE month_id = $1
     ORDER BY day ASC
@@ -524,12 +469,7 @@ export async function upsertMonthHoursForUser(
     await client.query("BEGIN");
 
     const { rows: monthRows } = await client.query(
-      `
-      SELECT id
-      FROM hours_months
-      WHERE user_id = $1 AND year = $2 AND month = $3
-      LIMIT 1
-      `,
+      `SELECT id FROM hours_months WHERE user_id = $1 AND year = $2 AND month = $3 LIMIT 1`,
       [userId, year, month]
     );
 
@@ -538,22 +478,14 @@ export async function upsertMonthHoursForUser(
     if (monthRows[0]) {
       monthId = monthRows[0].id;
       await client.query(
-        `
-        UPDATE hours_months
-        SET signature_data_url = $1, updated_at = NOW()
-        WHERE id = $2
-        `,
+        `UPDATE hours_months SET signature_data_url = $1, updated_at = NOW() WHERE id = $2`,
         [signatureDataUrl, monthId]
       );
 
       await client.query(`DELETE FROM hours_days WHERE month_id = $1`, [monthId]);
     } else {
       const { rows: inserted } = await client.query(
-        `
-        INSERT INTO hours_months (user_id, year, month, signature_data_url)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id
-        `,
+        `INSERT INTO hours_months (user_id, year, month, signature_data_url) VALUES ($1, $2, $3, $4) RETURNING id`,
         [userId, year, month, signatureDataUrl]
       );
       monthId = inserted[0].id;
@@ -563,21 +495,13 @@ export async function upsertMonthHoursForUser(
       await client.query(
         `
         INSERT INTO hours_days (
-          month_id,
-          day,
-          morning_in,
-          morning_out,
-          afternoon_in,
-          afternoon_out,
-          total_minutes,
-          absence_type,
-          has_signature
+          month_id, day, morning_in, morning_out, afternoon_in, afternoon_out,
+          total_minutes, absence_type, has_signature
         )
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         `,
         [
-          monthId,
-          d.day,
+          monthId, d.day,
           d.morningIn ?? null,
           d.morningOut ?? null,
           d.afternoonIn ?? null,
@@ -608,8 +532,6 @@ export interface DbPayroll {
   month: string;
   file_name: string;
   created_at: Date;
-
-  // PDFs almacenados en BD
   pdf_data?: Buffer | null;
   signed_pdf_data?: Buffer | null;
   signed_at?: Date | null;
@@ -622,7 +544,6 @@ export interface DbContract {
   file_name: string;
   created_at: Date;
   updated_at: Date;
-
   pdf_data?: Buffer | null;
 }
 
@@ -633,18 +554,12 @@ export interface DbCitation {
   issued_at: string;
   file_name: string;
   created_at: Date;
-
   pdf_data?: Buffer | null;
 }
 
 export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]> {
   const { rows } = await getPool().query<DbPayroll>(
-    `
-    SELECT *
-    FROM payrolls
-    WHERE owner_id = $1
-    ORDER BY year DESC, month DESC, created_at DESC
-    `,
+    `SELECT * FROM payrolls WHERE owner_id = $1 ORDER BY year DESC, month DESC, created_at DESC`,
     [ownerId]
   );
   return rows;
@@ -653,7 +568,7 @@ export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]>
 export async function createPayrollRecord(params: {
   ownerId: string;
   year: number;
-  month: string; // "01".."12"
+  month: string;
   fileName: string;
   pdfData: Buffer;
 }) {
@@ -661,18 +576,17 @@ export async function createPayrollRecord(params: {
 
   const { rows } = await getPool().query(
     `
-        INSERT INTO payrolls (owner_id, year, month, file_name, pdf_data)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (owner_id, year, month)
-        DO UPDATE SET
-          file_name = EXCLUDED.file_name,
-          pdf_data = EXCLUDED.pdf_data,
-          -- si vuelves a subir, tiene sentido resetear la firma anterior
-          signed_pdf_data = NULL,
-          signed_at = NULL,
-          signature_data_url = NULL
-        RETURNING *
-        `,
+    INSERT INTO payrolls (owner_id, year, month, file_name, pdf_data)
+    VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (owner_id, year, month)
+    DO UPDATE SET
+      file_name = EXCLUDED.file_name,
+      pdf_data = EXCLUDED.pdf_data,
+      signed_pdf_data = NULL,
+      signed_at = NULL,
+      signature_data_url = NULL
+    RETURNING *
+    `,
     [ownerId, year, month, fileName, pdfData]
   );
 
@@ -681,12 +595,7 @@ export async function createPayrollRecord(params: {
 
 export async function getPayrollById(id: string): Promise<DbPayroll | null> {
   const { rows } = await getPool().query<DbPayroll>(
-    `
-    SELECT *
-    FROM payrolls
-    WHERE id = $1
-    LIMIT 1
-    `,
+    `SELECT * FROM payrolls WHERE id = $1 LIMIT 1`,
     [id]
   );
   return rows[0] || null;
@@ -698,12 +607,7 @@ export async function deletePayrollRecord(id: string): Promise<void> {
 
 export async function getContractForOwner(ownerId: string): Promise<DbContract | null> {
   const { rows } = await getPool().query<DbContract>(
-    `
-    SELECT *
-    FROM contracts
-    WHERE owner_id = $1
-    LIMIT 1
-    `,
+    `SELECT * FROM contracts WHERE owner_id = $1 LIMIT 1`,
     [ownerId]
   );
   return rows[0] || null;
@@ -719,10 +623,7 @@ export async function upsertContractRecord(params: {
     INSERT INTO contracts (owner_id, file_name, pdf_data)
     VALUES ($1, $2, $3)
     ON CONFLICT (owner_id)
-    DO UPDATE SET
-      file_name = EXCLUDED.file_name,
-      pdf_data = EXCLUDED.pdf_data,
-      updated_at = NOW()
+    DO UPDATE SET file_name = EXCLUDED.file_name, pdf_data = EXCLUDED.pdf_data, updated_at = NOW()
     RETURNING *
     `,
     [params.ownerId, params.fileName, params.pdfData]
@@ -736,12 +637,7 @@ export async function deleteContractRecord(ownerId: string): Promise<void> {
 
 export async function listCitationsForUser(ownerId: string): Promise<DbCitation[]> {
   const { rows } = await getPool().query<DbCitation>(
-    `
-    SELECT *
-    FROM citations
-    WHERE owner_id = $1
-    ORDER BY issued_at DESC, created_at DESC
-    `,
+    `SELECT * FROM citations WHERE owner_id = $1 ORDER BY issued_at DESC, created_at DESC`,
     [ownerId]
   );
   return rows;
@@ -755,25 +651,15 @@ export async function createCitationRecord(params: {
   pdfData: Buffer;
 }): Promise<DbCitation> {
   const { rows } = await getPool().query<DbCitation>(
-    `
-    INSERT INTO citations (owner_id, title, issued_at, file_name, pdf_data)
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING *
-    `,
+    `INSERT INTO citations (owner_id, title, issued_at, file_name, pdf_data) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
     [params.ownerId, params.title, params.issuedAt, params.fileName, params.pdfData]
   );
   return rows[0];
 }
 
-
 export async function getCitationById(id: string): Promise<DbCitation | null> {
   const { rows } = await getPool().query<DbCitation>(
-    `
-    SELECT *
-    FROM citations
-    WHERE id = $1
-    LIMIT 1
-    `,
+    `SELECT * FROM citations WHERE id = $1 LIMIT 1`,
     [id]
   );
   return rows[0] || null;
@@ -785,12 +671,7 @@ export async function deleteCitationRecord(id: string): Promise<void> {
 
 export async function getCalendarEventById(id: string): Promise<DbCalendarEvent | null> {
   const { rows } = await getPool().query<DbCalendarEvent>(
-    `
-    SELECT *
-    FROM calendar_events
-    WHERE id = $1
-    LIMIT 1
-    `,
+    `SELECT * FROM calendar_events WHERE id = $1 LIMIT 1`,
     [id]
   );
   return rows[0] || null;
@@ -802,11 +683,7 @@ export async function deleteCalendarEventById(id: string): Promise<void> {
 
 export async function countAllVacationsForUser(userId: string): Promise<number> {
   const { rows } = await getPool().query(
-    `
-    SELECT COUNT(*)::int AS total
-    FROM calendar_events
-    WHERE owner_id = $1 AND type = 'vacaciones'
-    `,
+    `SELECT COUNT(*)::int AS total FROM calendar_events WHERE owner_id = $1 AND type = 'vacaciones'`,
     [userId]
   );
   return rows[0]?.total ?? 0;
@@ -843,17 +720,8 @@ export async function logLoginAttempt(params: {
 }) {
   const pool = getPool();
   await pool.query(
-    `
-    INSERT INTO login_attempts (attempted_username, success, reason, ip, user_agent)
-    VALUES ($1, $2, $3, $4, $5)
-  `,
-    [
-      params.attemptedUsername,
-      params.success,
-      params.reason,
-      params.ip,
-      params.userAgent,
-    ]
+    `INSERT INTO login_attempts (attempted_username, success, reason, ip, user_agent) VALUES ($1, $2, $3, $4, $5)`,
+    [params.attemptedUsername, params.success, params.reason, params.ip, params.userAgent]
   );
 }
 
@@ -948,11 +816,7 @@ export async function listBlockedIps(): Promise<Array<{ ip: string; reason: stri
 export async function blockIp(params: { ip: string; reason: string | null }) {
   const pool = getPool();
   await pool.query(
-    `
-    INSERT INTO blocked_ips (ip, reason)
-    VALUES ($1, $2)
-    ON CONFLICT (ip) DO UPDATE SET reason = EXCLUDED.reason
-  `,
+    `INSERT INTO blocked_ips (ip, reason) VALUES ($1, $2) ON CONFLICT (ip) DO UPDATE SET reason = EXCLUDED.reason`,
     [params.ip, params.reason]
   );
 }
@@ -969,13 +833,7 @@ export async function setPayrollSignedPdf(opts: {
 }) {
   const pool = getPool();
   await pool.query(
-    `
-    UPDATE payrolls
-    SET signed_pdf_data = $2,
-        signed_at = now(),
-        signature_data_url = $3
-    WHERE id = $1
-    `,
+    `UPDATE payrolls SET signed_pdf_data = $2, signed_at = now(), signature_data_url = $3 WHERE id = $1`,
     [opts.payrollId, opts.signedPdfData, opts.signatureDataUrl]
   );
 }

@@ -57,7 +57,9 @@ import {
   listLoginAttempts,
   listBlockedIps,
   blockIp,
-  unblockIp
+  unblockIp,
+
+  getUserByEmail
 } from "./db";
 
 import bcrypt from "bcrypt";
@@ -599,7 +601,7 @@ app.post("/api/auth/refresh", async (req: Request, res: Response) => {
     }
 
     const newAccessToken = jwt.sign(
-      { userId: dbUser.id, username: dbUser.username, role: dbUser.role },
+      { userId: dbUser.id, username: dbUser.email, role: dbUser.role },
       JWT_SECRET,
       { expiresIn: "7d" } // ✅ Cambiar de 15m a 7d
     );
@@ -629,7 +631,7 @@ app.post("/api/auth/refresh", async (req: Request, res: Response) => {
     }
 
     const newAccessToken = jwt.sign(
-      { userId: dbUser.id, username: dbUser.username, role: dbUser.role },
+      { userId: dbUser.id, username: dbUser.email, role: dbUser.role },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -884,7 +886,7 @@ app.get("/api/hours/pdf", authMiddleware, async (req: AuthRequest, res: Response
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="registro_horas_${year}_${String(month).padStart(2, "0")}_${dbUser.username}.pdf"`
+      `attachment; filename="registro_horas_${year}_${String(month).padStart(2, "0")}_${dbUser.email}.pdf"`
     );
     res.send(Buffer.from(pdfBytes));
   } catch (err) {
@@ -943,7 +945,7 @@ app.get("/api/admin/hours/pdf", authMiddleware, adminOnlyMiddleware, async (req:
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="registro_horas_${year}_${String(month).padStart(2, "0")}_${dbUser.username}.pdf"`
+      `attachment; filename="registro_horas_${year}_${String(month).padStart(2, "0")}_${dbUser.email}.pdf"`
     );
     res.send(Buffer.from(pdfBytes));
   } catch (err) {
@@ -963,7 +965,7 @@ app.get("/api/profile", authMiddleware, async (req: AuthRequest, res: Response) 
 
     res.json({
       id: u.id,
-      username: u.username,
+      username: u.email,
       fullName: u.full_name,
       role: u.role,
       vacationDaysPerYear: u.vacation_days_per_year,
@@ -1649,7 +1651,7 @@ app.get("/api/admin/users", authMiddleware, adminOnlyMiddleware, async (req: Aut
     res.json({
       users: all.map((u: DbUser) => ({
         id: u.id,
-        username: u.username,
+        username: u.email,
         fullName: u.full_name,
         role: u.role,
         isActive: u.is_active,
@@ -1805,7 +1807,7 @@ app.patch(
       }
 
       // ✅ Si cambia, valida dominio + unicidad
-      if (wantsEmailUpdate && nextEmail !== currentEmail) {
+      if (wantsEmailUpdate && nextEmail && nextEmail !== currentEmail) {
         const emailOk =
           /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail) &&
           nextEmail.endsWith("@jumaringenieria.es");
@@ -1836,7 +1838,7 @@ app.patch(
         worker_ss_number: workerSsNumber ?? null,
       };
 
-      if (wantsEmailUpdate) {
+      if (wantsEmailUpdate && nextEmail) {
         updateData.email = nextEmail; // ✅ aquí NUNCA será undefined
       }
 
@@ -1996,7 +1998,7 @@ app.get("/api/debug/db-users", async (_req, res) => {
       count: users.length,
       users: users.map((u: DbUser) => ({
         id: u.id,
-        username: u.username,
+        username: u.email,
         fullName: u.full_name,
         role: u.role,
         isActive: u.is_active,
@@ -2013,7 +2015,7 @@ app.post("/api/debug/db-users/demo", async (_req, res) => {
     const newUser = await dbCreateDemoUser();
     res.json({
       id: newUser.id,
-      username: newUser.username,
+      username: newUser.email,
       fullName: newUser.full_name,
     });
   } catch (err) {
