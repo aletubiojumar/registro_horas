@@ -245,7 +245,13 @@ const CalendarPageCore: React.FC<Props> = ({
 
         {/* Espacios vacíos al inicio */}
         {Array.from({ length: startPadding }).map((_, i) => (
-          <div key={`empty-${i}`} />
+          <div 
+            key={`empty-${i}`}
+            style={{
+              minHeight: 70,
+              border: `1px solid transparent`,
+            }}
+          />
         ))}
 
         {monthDays.map((day) => {
