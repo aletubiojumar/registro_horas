@@ -291,7 +291,7 @@ const ProfilePage: React.FC = () => {
           ...iconButtonStyle(darkMode),
           position: "fixed",
           top: 16,
-          right: 16,
+          left: 16,
           zIndex: 9999,
         }}
       >
@@ -306,7 +306,7 @@ const ProfilePage: React.FC = () => {
           style={{
             position: "fixed",
             top: 64,
-            right: 16,
+            left: 16,
             width: 260,
             padding: "0.75rem",
             borderRadius: "0.75rem",
