@@ -175,13 +175,17 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
       });
   };
 
+  const API_BASE = "/api";
+
   const handleDownload = (type: DocType, id?: string) => {
     const url =
       type === "contract"
-        ? `${API}/admin/documents/contract/download?userId=${user.id}`
-        : `${API}/admin/documents/${type}s/${id}/download`;
+        ? `${API_BASE}/admin/documents/contract/download?userId=${user.id}`
+        : `${API_BASE}/admin/documents/${type}s/${id}/download`;
 
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((r) => {
         if (!r.ok) throw new Error("Error al descargar");
         return r.blob();
