@@ -77,6 +77,7 @@ const CalendarPageCore: React.FC<Props> = ({
           juicio: "#e9d5ff",
           vacaciones: "#fed7aa",
           "cita médica": "#fecdd3",
+          "citación judicial": "#dbeafe",
           otros: "#e5e7eb",
         };
       }
@@ -85,6 +86,7 @@ const CalendarPageCore: React.FC<Props> = ({
         juicio: "#241338",
         vacaciones: "#4c2a06",
         "cita médica": "#3b0f18",
+        "citación judicial": "#1e3a5f",
         otros: "#0f172a",
       };
     })(),
@@ -284,25 +286,42 @@ const CalendarPageCore: React.FC<Props> = ({
                 {day}
               </div>
 
-              {dayEvents.map((ev) => (
-                <div
-                  key={ev.id}
-                  style={{
-                    fontSize: "0.65rem",
-                    marginTop: "0.15rem",
-                    padding: "0.1rem 0.3rem",
-                    border: `1px solid ${palette.pillBorder}`,
-                    borderRadius: "0.25rem",
-                    background: palette.pillBg,
-                    color: palette.pillText,
-                    width: "100%",
-                    textAlign: "left",
-                  }}
-                >
-                  {ev.type}
-                  {ev.type === "vacaciones" && ev.status === "pending" && (
-                    <span title="Pendiente de aprobación"> ⏳</span>
-                  )}
+              {dayEvents.map((ev) => {
+                // Para citaciones judiciales, medicalJustificationFileName contiene: "título - HH:MM - ubicación"
+                const isCitation = ev.type === "citación judicial";
+                let displayText: string = ev.type;
+                let tooltip = "";
+                
+                if (isCitation && ev.medicalJustificationFileName) {
+                  // Parsear la información guardada
+                  const parts = ev.medicalJustificationFileName.split(" - ");
+                  if (parts.length >= 2) {
+                    displayText = `⚖️ ${parts[1]}`; // Mostrar solo la hora con icono
+                    tooltip = ev.medicalJustificationFileName; // Tooltip con toda la info
+                  }
+                }
+                
+                return (
+                  <div
+                    key={ev.id}
+                    title={tooltip || ev.type}
+                    style={{
+                      fontSize: "0.65rem",
+                      marginTop: "0.15rem",
+                      padding: "0.1rem 0.3rem",
+                      border: `1px solid ${palette.pillBorder}`,
+                      borderRadius: "0.25rem",
+                      background: palette.pillBg,
+                      color: palette.pillText,
+                      width: "100%",
+                      textAlign: "left",
+                      cursor: isCitation ? "help" : "default",
+                    }}
+                  >
+                    {displayText}
+                    {ev.type === "vacaciones" && ev.status === "pending" && (
+                      <span title="Pendiente de aprobación"> ⏳</span>
+                    )}
 
                   {ev.type === "vacaciones" &&
                     ev.status === "pending" &&
@@ -340,8 +359,9 @@ const CalendarPageCore: React.FC<Props> = ({
                         </button>
                       </div>
                     )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           );
         })}

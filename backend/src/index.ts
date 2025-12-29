@@ -7,7 +7,8 @@ import OpenAI from "openai";
 import path from "path";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
-
+import * as pdfParseModule from 'pdf-parse';
+const pdfParse = (pdfParseModule as any).default || pdfParseModule;
 import {
   initDb,
   getPool,
@@ -225,6 +226,67 @@ async function ensureDocsSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_hours_days_month ON hours_days(month_id);`);
 
   console.log("✅ Docs schema listo (payrolls, citations, contracts, hours)");
+}
+
+// -------------------------
+// Función para extraer información del PDF de citación
+// -------------------------
+async function extractCitationInfo(pdfBuffer: Buffer): Promise<{
+  date: string | null;
+  time: string | null;
+  location: string | null;
+}> {
+  try {
+    const data = await pdfParse(pdfBuffer);
+    const text = data.text;
+
+    // Extraer fecha (formato: "2 de diciembre 2025" o "02/12/2025")
+    let date: string | null = null;
+
+    // Patrón 1: "día X de MES YYYY"
+    const datePattern1 = /día\s+(\d{1,2})\s+de\s+(\w+)\s+(\d{4})/i;
+    const match1 = text.match(datePattern1);
+
+    if (match1) {
+      const day = match1[1].padStart(2, '0');
+      const monthName = match1[2].toLowerCase();
+      const year = match1[3];
+
+      const months: Record<string, string> = {
+        'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+        'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+        'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+      };
+
+      const month = months[monthName];
+      if (month) {
+        date = `${year}-${month}-${day}`;
+      }
+    }
+
+    // Extraer hora (formato: "09:30 horas")
+    let time: string | null = null;
+    const timePattern = /(\d{1,2}):(\d{2})\s*horas?/i;
+    const timeMatch = text.match(timePattern);
+
+    if (timeMatch) {
+      time = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+    }
+
+    // Extraer ubicación (después de "Lugar en que debe comparecer:")
+    let location: string | null = null;
+    const locationPattern = /Lugar en que debe comparecer[:\s]+([^\n]+)/i;
+    const locationMatch = text.match(locationPattern);
+
+    if (locationMatch) {
+      location = locationMatch[1].trim();
+    }
+
+    return { date, time, location };
+  } catch (err) {
+    console.error('Error extrayendo información del PDF:', err);
+    return { date: null, time: null, location: null };
+  }
 }
 
 // -------------------------
@@ -2454,29 +2516,89 @@ app.post("/api/documents/payrolls/:id/sign", authMiddleware, async (req: AuthReq
   }
 });
 
-// Worker: aceptar o rechazar citación
+// ============================================
+// Worker: accept/reject citation and create calendar event
+// ============================================
+
 app.patch("/api/documents/citations/:id/status", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const citationId = req.params.id;
     const userId = req.user!.userId;
     const { status } = req.body as { status?: string };
 
-    // Validar status
     if (!status || !["accepted", "rejected"].includes(status)) {
       return res.status(400).json({ error: "Status inválido. Debe ser 'accepted' o 'rejected'" });
     }
 
-    // Verificar que la citación existe y pertenece al usuario
     const citation = await getCitationById(citationId);
     if (!citation || citation.owner_id !== userId) {
       return res.status(404).json({ error: "Citación no encontrada" });
     }
 
-    // Actualizar el estado en la base de datos
+    // Actualizar el estado
     await getPool().query(
       `UPDATE citations SET status = $1 WHERE id = $2`,
       [status, citationId]
     );
+
+    // Si se acepta la citación, crear evento en el calendario
+    if (status === "accepted" && citation.s3_key) {
+      try {
+        // Descargar el PDF desde S3
+        const command = new GetObjectCommand({
+          Bucket: process.env.S3_BUCKET_DOCS || "registro-horas-docs",
+          Key: citation.s3_key,
+        });
+
+        const s3Response = await s3.send(command);
+
+        if (s3Response.Body) {
+          // Convertir stream a buffer
+          const chunks: Uint8Array[] = [];
+          for await (const chunk of s3Response.Body as any) {
+            chunks.push(chunk);
+          }
+          const pdfBuffer = Buffer.concat(chunks);
+
+          // Extraer información
+          const info = await extractCitationInfo(pdfBuffer);
+
+          // Si tenemos fecha, crear el evento
+          if (info.date) {
+            const eventId = crypto.randomUUID();
+
+            // Construir la descripción del evento
+            let eventDescription = citation.title;
+            if (info.time) {
+              eventDescription += ` - ${info.time}`;
+            }
+            if (info.location) {
+              eventDescription += ` - ${info.location}`;
+            }
+
+            // Crear evento en el calendario
+            await getPool().query(
+              `INSERT INTO calendar_events (id, owner_id, type, date, status, visibility, medical_file)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [
+                eventId,
+                userId,
+                'citación judicial', // Nuevo tipo de evento
+                info.date,
+                null, // No necesita aprobación
+                'only-me', // Privado por defecto
+                eventDescription // Guardamos: "título - HH:MM - ubicación"
+              ]
+            );
+
+            console.log(`✅ Evento de calendario creado para citación ${citationId}`);
+          }
+        }
+      } catch (err) {
+        console.error('Error creando evento de calendario:', err);
+        // No fallar la operación principal si falla la creación del evento
+      }
+    }
 
     res.json({ ok: true, status });
   } catch (err) {

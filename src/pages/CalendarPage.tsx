@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
 
-type EventType = "visita" | "juicio" | "vacaciones" | "cita médica" | "otros";
+type EventType = "visita" | "juicio" | "vacaciones" | "cita médica" | "citación judicial" | "otros";
 type Visibility = "only-me" | "all" | "some";
 
 export interface CalendarEvent {
@@ -50,6 +50,7 @@ const CalendarPage: React.FC = () => {
         juicio: "#e9d5ff",      // morado claro
         vacaciones: "#fed7aa",  // naranja (pending) / azul (approved)
         "cita médica": "#fecdd3", // rosa
+        "citación judicial": "#dbeafe", // azul claro
         otros: "#e5e7eb",        // gris
     };
 
@@ -619,7 +620,7 @@ const CalendarPage: React.FC = () => {
                                     onChange={(e) => handleUpdateType(e.target.value as EventType)}
                                     style={{ width: "100%", marginTop: "0.25rem", padding: "0.35rem" }}
                                 >
-                                    {(["visita", "juicio", "vacaciones", "cita médica", "otros"] as EventType[]).map((t) => (
+                                    {(["visita", "juicio", "vacaciones", "cita médica", "citación judicial", "otros"] as EventType[]).map((t) => (
                                         <option key={t} value={t}>
                                             {t}
                                         </option>
