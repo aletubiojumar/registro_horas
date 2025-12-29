@@ -12,21 +12,16 @@ type Theme = {
   primary: string;
 };
 
-// ✅ CORREGIDO: Función robusta para detectar fines de semana
-const isWeekend = (dateStr: string): boolean => {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const d = new Date(year, month - 1, day);
-  const dayOfWeek = d.getDay(); // 0=domingo, 6=sábado
-  return dayOfWeek === 0 || dayOfWeek === 6;
+const isWeekend = (date: string): boolean => {
+  const d = new Date(date);
+  const day = d.getDay();
+  return day === 0 || day === 6;
 };
 
-const isFutureDay = (dateStr: string): boolean => {
+const isFutureDay = (date: string): boolean => {
   const today = new Date();
-  // Normalizar a medianoche local
-  const todayStr = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-    .toISOString()
-    .slice(0, 10);
-  return dateStr > todayStr;
+  const todayStr = today.toISOString().slice(0, 10);
+  return date > todayStr;
 };
 
 interface Props {
@@ -47,7 +42,7 @@ const CalendarPageCore: React.FC<Props> = ({
 
   const dark = theme?.darkMode ?? false;
 
-  // Paleta de colores (simplificada para claridad)
+  // Paleta interna (si no pasas theme, usa claro por defecto)
   const palette = {
     border: theme?.border ?? "#e5e7eb",
     text: theme?.text ?? "#111827",
@@ -56,46 +51,54 @@ const CalendarPageCore: React.FC<Props> = ({
     inputBg: theme?.inputBg ?? "#ffffff",
     inputBorder: theme?.inputBorder ?? "#d1d5db",
     primary: theme?.primary ?? "#2563eb",
-    
+
+    // Colores específicos del calendario
     dayHeaderText: dark ? "#94a3b8" : "#4b5563",
+
     cellBorder: dark ? (theme?.border ?? "#334155") : "#e5e7eb",
     cellText: dark ? "#e5e7eb" : "#111827",
-    
-    // ✅ CORREGIDO: Solo fines de semana = amarillo/dorado
-    bgWeekend: dark ? "#451a03" : "#fef3c7", // Más intenso en modo oscuro
-    
+
+    // Fondo de celda según estado
     bgDefault: dark ? "#0b1220" : "#ffffff",
-    bgFuture: dark ? "#0f172a" : "#f9fafb",
-    
+    bgFuture: dark ? "#0f172a" : "#e5e7eb",
+    bgWeekend: dark ? "#111827" : "#fef3c7",
+
     bgVacApproved: dark ? "#0b3a6f" : "#bfdbfe",
     bdVacApproved: dark ? "#2563eb" : "#60a5fa",
+
     bgVacPending: dark ? "#4c2a06" : "#fed7aa",
     bdVacPending: dark ? "#f59e0b" : "#fb923c",
-    
-    colorByType: dark ? {
-      visita: "#0f2a1a",
-      juicio: "#241338",
-      vacaciones: "#4c2a06",
-      "cita médica": "#3b0f18",
-      "citación judicial": "#241338",
-      otros: "#0f172a",
-    } : {
-      visita: "#dcfce7",
-      juicio: "#e9d5ff",
-      vacaciones: "#fed7aa",
-      "cita médica": "#fecdd3",
-      "citación judicial": "#e9d5ff",
-      otros: "#e5e7eb",
-    },
-    
+
+    // “Color por tipo” (en oscuro usamos versiones más profundas)
+    colorByType: ((): Record<any, string> => {
+      if (!dark) {
+        return {
+          visita: "#dcfce7",
+          juicio: "#e9d5ff",
+          vacaciones: "#fed7aa",
+          "cita médica": "#fecdd3",
+          otros: "#e5e7eb",
+        };
+      }
+      return {
+        visita: "#0f2a1a",
+        juicio: "#241338",
+        vacaciones: "#4c2a06",
+        "cita médica": "#3b0f18",
+        otros: "#0f172a",
+      };
+    })(),
+
+    // “pill” de evento dentro de una celda
     pillBg: dark ? "#0f172a" : "#ffffff",
     pillBorder: dark ? "#334155" : "#d1d5db",
     pillText: dark ? "#e5e7eb" : "#111827",
-    
+
+    // Botones aprobar/rechazar
     okBg: dark ? "#0f2a1a" : "#dcfce7",
     okBd: dark ? "#22c55e" : "#16a34a",
     okTx: dark ? "#86efac" : "#166534",
-    
+
     noBg: dark ? "#3b0f18" : "#fee2e2",
     noBd: dark ? "#ef4444" : "#dc2626",
     noTx: dark ? "#fecaca" : "#b91c1c",
@@ -129,16 +132,18 @@ const CalendarPageCore: React.FC<Props> = ({
     }
   };
 
-  // ✅ CORREGIDO: Cálculo más claro y robusto del padding
-  const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0=domingo, 6=sábado
-  const startPadding = (firstDayOfMonth + 6) % 7; // Convierte: Lunes=0, Martes=1, ..., Domingo=6
-
-  console.log(`startPadding para ${monthName}:`, startPadding, 
-              `(1 del mes cae en día ${["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][firstDayOfMonth]})`);
+  const navBtnStyle: React.CSSProperties = {
+    padding: "0.2rem 0.5rem",
+    borderRadius: "0.25rem",
+    border: `1px solid ${palette.inputBorder}`,
+    backgroundColor: palette.inputBg,
+    color: palette.text,
+    cursor: "pointer",
+  };
 
   return (
     <div style={{ color: palette.text }}>
-      {/* Selector de mes */}
+      {/* Selector mes */}
       <div
         style={{
           display: "flex",
@@ -147,33 +152,13 @@ const CalendarPageCore: React.FC<Props> = ({
           marginBottom: "0.75rem",
         }}
       >
-        <button 
-          onClick={handlePrev} 
-          style={{
-            padding: "0.2rem 0.5rem",
-            borderRadius: "0.25rem",
-            border: `1px solid ${palette.inputBorder}`,
-            backgroundColor: palette.inputBg,
-            color: palette.text,
-            cursor: "pointer",
-          }}
-        >
+        <button onClick={handlePrev} style={navBtnStyle}>
           ◀
         </button>
         <span style={{ fontWeight: 600, textTransform: "capitalize" }}>
           {monthName}
         </span>
-        <button 
-          onClick={handleNext} 
-          style={{
-            padding: "0.2rem 0.5rem",
-            borderRadius: "0.25rem",
-            border: `1px solid ${palette.inputBorder}`,
-            backgroundColor: palette.inputBg,
-            color: palette.text,
-            cursor: "pointer",
-          }}
-        >
+        <button onClick={handleNext} style={navBtnStyle}>
           ▶
         </button>
       </div>
@@ -224,7 +209,7 @@ const CalendarPageCore: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Cuadrícula del calendario */}
+      {/* Cuadrícula */}
       <div
         style={{
           display: "grid",
@@ -233,7 +218,6 @@ const CalendarPageCore: React.FC<Props> = ({
           textAlign: "center",
         }}
       >
-        {/* Encabezados de días */}
         {["L", "M", "X", "J", "V", "S", "D"].map((d) => (
           <div
             key={d}
@@ -248,18 +232,6 @@ const CalendarPageCore: React.FC<Props> = ({
           </div>
         ))}
 
-        {/* Espacios vacíos al inicio del mes */}
-        {Array.from({ length: startPadding }).map((_, i) => (
-          <div 
-            key={`empty-${i}`}
-            style={{
-              minHeight: 70,
-              border: `1px solid transparent`,
-            }}
-          />
-        ))}
-
-        {/* Días del mes */}
         {monthDays.map((day) => {
           const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(
             day
@@ -276,21 +248,15 @@ const CalendarPageCore: React.FC<Props> = ({
             (e) => e.type === "vacaciones" && e.status === "approved"
           );
 
-          // ✅ CORREGIDO: Prioridad de colores clara
           let bg = palette.bgDefault;
 
-          if (vacApproved) {
-            bg = palette.bgVacApproved;
-          } else if (vacPending) {
-            bg = palette.bgVacPending;
-          } else if (weekend) {
-            bg = palette.bgWeekend; // ✅ ESTO es lo que quieres - solo fines de semana
-          } else if (dayEvents.length > 0) {
-            // Si hay eventos (no vacaciones), usa color por tipo
-            const firstEventType = dayEvents[0].type as keyof typeof palette.colorByType;
-            bg = palette.colorByType[firstEventType] ?? palette.bgDefault;
-          } else if (future) {
-            bg = palette.bgFuture;
+          if (vacApproved) bg = palette.bgVacApproved;
+          else if (vacPending) bg = palette.bgVacPending;
+          else if (weekend) bg = palette.bgWeekend;
+          else {
+            const types = dayEvents.map((e) => e.type) as any[];
+            if (types.length) bg = palette.colorByType[types[0]] ?? palette.bgDefault;
+            else if (future) bg = palette.bgFuture;
           }
 
           return (
@@ -333,7 +299,6 @@ const CalendarPageCore: React.FC<Props> = ({
                     textAlign: "left",
                   }}
                 >
-                  {ev.type === "citación judicial" && "⚖️ "}
                   {ev.type}
                   {ev.type === "vacaciones" && ev.status === "pending" && (
                     <span title="Pendiente de aprobación"> ⏳</span>
