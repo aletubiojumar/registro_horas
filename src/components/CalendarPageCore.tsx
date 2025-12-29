@@ -12,10 +12,13 @@ type Theme = {
   primary: string;
 };
 
-const isWeekend = (date: string): boolean => {
-  const d = new Date(date);
-  const day = d.getDay();
-  return day === 0 || day === 6;
+const isWeekend = (dateStr: string): boolean => {
+  // Parsear la fecha correctamente sin problemas de zona horaria
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const d = new Date(year, month - 1, day);
+  const dayOfWeek = d.getDay();
+  // 0 = domingo, 6 = sábado
+  return dayOfWeek === 0 || dayOfWeek === 6;
 };
 
 const isFutureDay = (date: string): boolean => {
@@ -60,7 +63,7 @@ const CalendarPageCore: React.FC<Props> = ({
 
     // Fondo de celda según estado
     bgDefault: dark ? "#0b1220" : "#ffffff",
-    bgFuture: dark ? "#0f172a" : "#e5e7eb",
+    bgFuture: dark ? "#0f172a" : "#f9fafb",
     bgWeekend: dark ? "#111827" : "#fef3c7",
 
     bgVacApproved: dark ? "#0b3a6f" : "#bfdbfe",
@@ -69,7 +72,7 @@ const CalendarPageCore: React.FC<Props> = ({
     bgVacPending: dark ? "#4c2a06" : "#fed7aa",
     bdVacPending: dark ? "#f59e0b" : "#fb923c",
 
-    // “Color por tipo” (en oscuro usamos versiones más profundas)
+    // "Color por tipo" (en oscuro usamos versiones más profundas)
     colorByType: ((): Record<any, string> => {
       if (!dark) {
         return {
@@ -77,6 +80,7 @@ const CalendarPageCore: React.FC<Props> = ({
           juicio: "#e9d5ff",
           vacaciones: "#fed7aa",
           "cita médica": "#fecdd3",
+          "citación judicial": "#e9d5ff", // Mismo que juicio
           otros: "#e5e7eb",
         };
       }
@@ -85,11 +89,12 @@ const CalendarPageCore: React.FC<Props> = ({
         juicio: "#241338",
         vacaciones: "#4c2a06",
         "cita médica": "#3b0f18",
+        "citación judicial": "#241338", // Mismo que juicio
         otros: "#0f172a",
       };
     })(),
 
-    // “pill” de evento dentro de una celda
+    // "pill" de evento dentro de una celda
     pillBg: dark ? "#0f172a" : "#ffffff",
     pillBorder: dark ? "#334155" : "#d1d5db",
     pillText: dark ? "#e5e7eb" : "#111827",
@@ -141,6 +146,12 @@ const CalendarPageCore: React.FC<Props> = ({
     cursor: "pointer",
   };
 
+  // Obtener el primer día del mes para saber cuántos espacios vacíos necesitamos
+  // getDay() retorna: 0=domingo, 1=lunes, 2=martes, ..., 6=sábado
+  // Necesitamos convertir a: lunes=0, martes=1, ..., domingo=6
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  const startPadding = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
+
   return (
     <div style={{ color: palette.text }}>
       {/* Selector mes */}
@@ -164,7 +175,13 @@ const CalendarPageCore: React.FC<Props> = ({
       </div>
 
       {/* Leyenda */}
-      <div style={{ fontSize: "0.75rem", color: palette.muted, marginBottom: "0.5rem" }}>
+      <div
+        style={{
+          fontSize: "0.75rem",
+          color: palette.muted,
+          marginBottom: "0.5rem",
+        }}
+      >
         <div>
           <span
             style={{
@@ -230,6 +247,17 @@ const CalendarPageCore: React.FC<Props> = ({
           >
             {d}
           </div>
+        ))}
+
+        {/* Espacios vacíos al inicio */}
+        {Array.from({ length: startPadding }).map((_, i) => (
+          <div
+            key={`empty-${i}`}
+            style={{
+              minHeight: 70,
+              border: `1px solid transparent`,
+            }}
+          />
         ))}
 
         {monthDays.map((day) => {
@@ -299,6 +327,7 @@ const CalendarPageCore: React.FC<Props> = ({
                     textAlign: "left",
                   }}
                 >
+                  {ev.type === "citación judicial" && "⚖️ "}
                   {ev.type}
                   {ev.type === "vacaciones" && ev.status === "pending" && (
                     <span title="Pendiente de aprobación"> ⏳</span>
