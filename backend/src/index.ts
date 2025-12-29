@@ -1355,6 +1355,7 @@ app.get("/api/documents/citations", authMiddleware, async (req: AuthRequest, res
         title: c.title,
         issuedAt: c.issued_at,
         fileName: c.file_name,
+        status: c.status,  // ← AÑADIDO
       })),
     });
   } catch (err) {
