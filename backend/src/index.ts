@@ -2594,12 +2594,13 @@ app.patch("/api/documents/citations/:id/status", authMiddleware, async (req: Aut
             console.log(`📍 Ubicación extraída: ${location}`);
           }
 
-          // Si no tenemos fecha, usar una fecha placeholder (hoy + 7 días)
+          // Si no tenemos fecha, usar el último día del mes actual
           if (!eventDate) {
-            const futureDate = new Date();
-            futureDate.setDate(futureDate.getDate() + 7);
-            eventDate = futureDate.toISOString().split('T')[0];
-            console.log('⚠️ No se pudo extraer la fecha del PDF, usando fecha placeholder:', eventDate);
+            const today = new Date();
+            // Último día del mes actual
+            const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            eventDate = lastDayOfMonth.toISOString().split('T')[0];
+            console.log('⚠️ No se pudo extraer la fecha del PDF, usando último día del mes actual:', eventDate);
           }
 
           // Crear el evento SIEMPRE

@@ -12,10 +12,13 @@ type Theme = {
   primary: string;
 };
 
-const isWeekend = (date: string): boolean => {
-  const d = new Date(date);
-  const day = d.getDay();
-  return day === 0 || day === 6;
+const isWeekend = (dateStr: string): boolean => {
+  // Parsear la fecha correctamente sin problemas de zona horaria
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
+  const dayOfWeek = d.getDay();
+  // 0 = domingo, 6 = sábado
+  return dayOfWeek === 0 || dayOfWeek === 6;
 };
 
 const isFutureDay = (date: string): boolean => {
@@ -69,7 +72,7 @@ const CalendarPageCore: React.FC<Props> = ({
     bgVacPending: dark ? "#4c2a06" : "#fed7aa",
     bdVacPending: dark ? "#f59e0b" : "#fb923c",
 
-    // “Color por tipo” (en oscuro usamos versiones más profundas)
+    // "Color por tipo" (en oscuro usamos versiones más profundas)
     colorByType: ((): Record<any, string> => {
       if (!dark) {
         return {
@@ -77,7 +80,7 @@ const CalendarPageCore: React.FC<Props> = ({
           juicio: "#e9d5ff",
           vacaciones: "#fed7aa",
           "cita médica": "#fecdd3",
-          "citación judicial": "#dbeafe",
+          "citación judicial": "#e9d5ff", // Mismo que juicio
           otros: "#e5e7eb",
         };
       }
@@ -86,12 +89,12 @@ const CalendarPageCore: React.FC<Props> = ({
         juicio: "#241338",
         vacaciones: "#4c2a06",
         "cita médica": "#3b0f18",
-        "citación judicial": "#1e3a5f",
+        "citación judicial": "#241338", // Mismo que juicio
         otros: "#0f172a",
       };
     })(),
 
-    // “pill” de evento dentro de una celda
+    // "pill" de evento dentro de una celda
     pillBg: dark ? "#0f172a" : "#ffffff",
     pillBorder: dark ? "#334155" : "#d1d5db",
     pillText: dark ? "#e5e7eb" : "#111827",
@@ -142,6 +145,11 @@ const CalendarPageCore: React.FC<Props> = ({
     color: palette.text,
     cursor: "pointer",
   };
+
+  // Obtener el primer día del mes para saber cuántos espacios vacíos necesitamos
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  // Convertir domingo (0) a 7 para que lunes sea 1
+  const startPadding = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
 
   return (
     <div style={{ color: palette.text }}>
@@ -234,6 +242,11 @@ const CalendarPageCore: React.FC<Props> = ({
           </div>
         ))}
 
+        {/* Espacios vacíos al inicio */}
+        {Array.from({ length: startPadding }).map((_, i) => (
+          <div key={`empty-${i}`} />
+        ))}
+
         {monthDays.map((day) => {
           const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(
             day
@@ -286,42 +299,25 @@ const CalendarPageCore: React.FC<Props> = ({
                 {day}
               </div>
 
-              {dayEvents.map((ev) => {
-                // Para citaciones judiciales, medicalJustificationFileName contiene: "título - HH:MM - ubicación"
-                const isCitation = ev.type === "citación judicial";
-                let displayText: string = ev.type;
-                let tooltip = "";
-                
-                if (isCitation && ev.medicalJustificationFileName) {
-                  // Parsear la información guardada
-                  const parts = ev.medicalJustificationFileName.split(" - ");
-                  if (parts.length >= 2) {
-                    displayText = `⚖️ ${parts[1]}`; // Mostrar solo la hora con icono
-                    tooltip = ev.medicalJustificationFileName; // Tooltip con toda la info
-                  }
-                }
-                
-                return (
-                  <div
-                    key={ev.id}
-                    title={tooltip || ev.type}
-                    style={{
-                      fontSize: "0.65rem",
-                      marginTop: "0.15rem",
-                      padding: "0.1rem 0.3rem",
-                      border: `1px solid ${palette.pillBorder}`,
-                      borderRadius: "0.25rem",
-                      background: palette.pillBg,
-                      color: palette.pillText,
-                      width: "100%",
-                      textAlign: "left",
-                      cursor: isCitation ? "help" : "default",
-                    }}
-                  >
-                    {displayText}
-                    {ev.type === "vacaciones" && ev.status === "pending" && (
-                      <span title="Pendiente de aprobación"> ⏳</span>
-                    )}
+              {dayEvents.map((ev) => (
+                <div
+                  key={ev.id}
+                  style={{
+                    fontSize: "0.65rem",
+                    marginTop: "0.15rem",
+                    padding: "0.1rem 0.3rem",
+                    border: `1px solid ${palette.pillBorder}`,
+                    borderRadius: "0.25rem",
+                    background: palette.pillBg,
+                    color: palette.pillText,
+                    width: "100%",
+                    textAlign: "left",
+                  }}
+                >
+                  {ev.type === "citación judicial" ? "⚖️" : ""} {ev.type}
+                  {ev.type === "vacaciones" && ev.status === "pending" && (
+                    <span title="Pendiente de aprobación"> ⏳</span>
+                  )}
 
                   {ev.type === "vacaciones" &&
                     ev.status === "pending" &&
@@ -359,9 +355,8 @@ const CalendarPageCore: React.FC<Props> = ({
                         </button>
                       </div>
                     )}
-                  </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           );
         })}
