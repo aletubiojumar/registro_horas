@@ -111,7 +111,7 @@ async function ensureIaSchema() {
   );
 
   console.log("✅ IA schema listo (ia_chats / ia_messages)");
-
+}
 
   // -------------------------
   // Security: login attempts + IP blocks
@@ -1504,6 +1504,29 @@ app.delete(
     }
   }
 );
+
+// List citations for a specific user (admin)
+app.get("/api/admin/documents/citations", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = String(req.query.userId || "");
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const list = await listCitationsForUser(userId);
+    res.json({
+      citations: list.map((c) => ({
+        id: c.id,
+        ownerId: c.owner_id,
+        title: c.title,
+        issuedAt: c.issued_at,
+        fileName: c.file_name,
+        status: c.status,
+      })),
+    });
+  } catch (err) {
+    console.error("Error GET /api/admin/documents/citations:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
 
 // Upload citation for a specific user
 const s3 = new S3Client({ region: process.env.AWS_REGION });
