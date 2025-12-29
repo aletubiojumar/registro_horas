@@ -22,6 +22,11 @@ const DocumentsPage: React.FC = () => {
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
 
+  // Estados para citaciones
+  const [citationSearch, setCitationSearch] = useState("");
+  const [showAllCitations, setShowAllCitations] = useState(false);
+  const CITATIONS_LIMIT = 4;
+
   const loadDocuments = () => {
     if (!user?.token) return;
 
@@ -65,6 +70,37 @@ const DocumentsPage: React.FC = () => {
       year: "numeric",
     });
   };
+
+  // Filtrar y ordenar citaciones
+  const getFilteredCitations = () => {
+    let filtered = [...citations];
+
+    // Filtrar por búsqueda (título o fecha)
+    if (citationSearch.trim()) {
+      const searchLower = citationSearch.toLowerCase();
+      filtered = filtered.filter((c) => {
+        const titleMatch = c.title.toLowerCase().includes(searchLower);
+        const dateMatch = new Date(c.issuedAt)
+          .toLocaleDateString("es-ES")
+          .toLowerCase()
+          .includes(searchLower);
+        return titleMatch || dateMatch;
+      });
+    }
+
+    // Ordenar por fecha (más reciente primero)
+    filtered.sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime());
+
+    // Limitar cantidad si no se muestran todas
+    if (!showAllCitations) {
+      filtered = filtered.slice(0, CITATIONS_LIMIT);
+    }
+
+    return filtered;
+  };
+
+  const filteredCitations = getFilteredCitations();
+  const hasMoreCitations = citations.length > CITATIONS_LIMIT;
 
   const handleDownload = (type: "payroll" | "contract" | "citation", id?: string) => {
     const url =
@@ -296,42 +332,92 @@ const DocumentsPage: React.FC = () => {
             padding: "1.5rem",
           }}
         >
-          <h3 style={{ marginTop: 0 }}>Citaciones</h3>
-          {citations.length ? (
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {citations.map((c) => (
-                <li
-                  key={c.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "0.5rem 0",
-                    borderBottom: "1px solid #e5e7eb",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{c.title}</div>
-                    <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                      {new Date(c.issuedAt).toLocaleDateString("es-ES")}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleDownload("citation", c.id)}
+          <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Citaciones</h3>
+
+          {citations.length > 0 && (
+            <div style={{ marginBottom: "1rem" }}>
+              <input
+                type="text"
+                placeholder="Buscar por título o fecha..."
+                value={citationSearch}
+                onChange={(e) => {
+                  setCitationSearch(e.target.value);
+                  setShowAllCitations(false); // Resetear al buscar
+                }}
+                style={{
+                  width: "100%",
+                  padding: "0.5rem",
+                  borderRadius: "0.25rem",
+                  border: "1px solid #d1d5db",
+                  fontSize: "0.875rem",
+                  outline: "none",
+                }}
+              />
+            </div>
+          )}
+
+          {filteredCitations.length > 0 ? (
+            <>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                {filteredCitations.map((c) => (
+                  <li
+                    key={c.id}
                     style={{
-                      padding: "0.3rem 0.6rem",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "0.5rem 0",
+                      borderBottom: "1px solid #e5e7eb",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{c.title}</div>
+                      <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                        {new Date(c.issuedAt).toLocaleDateString("es-ES")}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDownload("citation", c.id)}
+                      style={{
+                        padding: "0.3rem 0.6rem",
+                        fontSize: "0.8rem",
+                        borderRadius: "0.25rem",
+                        border: "1px solid #d1d5db",
+                        backgroundColor: "#fff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Descargar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+
+              {hasMoreCitations && !citationSearch && (
+                <div style={{ marginTop: "1rem", textAlign: "center" }}>
+                  <button
+                    onClick={() => setShowAllCitations(!showAllCitations)}
+                    style={{
+                      padding: "0.4rem 0.8rem",
                       fontSize: "0.8rem",
                       borderRadius: "0.25rem",
                       border: "1px solid #d1d5db",
                       backgroundColor: "#fff",
+                      color: "#374151",
                       cursor: "pointer",
                     }}
                   >
-                    Descargar
+                    {showAllCitations
+                      ? "Ver menos"
+                      : `Ver todas (${citations.length})`}
                   </button>
-                </li>
-              ))}
-            </ul>
+                </div>
+              )}
+            </>
+          ) : citations.length > 0 ? (
+            <p style={{ margin: 0, fontSize: "0.9rem", color: "#6b7280" }}>
+              No se encontraron citaciones que coincidan con "{citationSearch}".
+            </p>
           ) : (
             <p style={{ margin: 0, fontSize: "0.9rem", color: "#6b7280" }}>
               No hay citaciones.
