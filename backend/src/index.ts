@@ -111,12 +111,12 @@ async function ensureIaSchema() {
   );
 
   console.log("✅ IA schema listo (ia_chats / ia_messages)");
-}
 
-  // -------------------------
-  // Security: login attempts + IP blocks
-  // -------------------------
-  await pool.query(`
+
+// -------------------------
+// Security: login attempts + IP blocks
+// -------------------------
+await pool.query(`
     CREATE TABLE IF NOT EXISTS login_attempts (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -128,11 +128,11 @@ async function ensureIaSchema() {
     );
   `);
 
-  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_created_at_idx ON login_attempts (created_at DESC);`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_username_created_at_idx ON login_attempts (attempted_username, created_at DESC);`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_ip_created_at_idx ON login_attempts (ip, created_at DESC);`);
+await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_created_at_idx ON login_attempts (created_at DESC);`);
+await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_username_created_at_idx ON login_attempts (attempted_username, created_at DESC);`);
+await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_ip_created_at_idx ON login_attempts (ip, created_at DESC);`);
 
-  await pool.query(`
+await pool.query(`
     CREATE TABLE IF NOT EXISTS blocked_ips (
       ip text PRIMARY KEY,
       reason text,
@@ -1322,6 +1322,29 @@ app.get("/api/documents/contract/download", authMiddleware, async (req: AuthRequ
 });
 
 // Citations worker
+// List citations for a specific user (admin)
+app.get("/api/admin/documents/citations", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = String(req.query.userId || "");
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const list = await listCitationsForUser(userId);
+    res.json({
+      citations: list.map((c) => ({
+        id: c.id,
+        ownerId: c.owner_id,
+        title: c.title,
+        issuedAt: c.issued_at,
+        fileName: c.file_name,
+        status: c.status,
+      })),
+    });
+  } catch (err) {
+    console.error("Error GET /api/admin/documents/citations:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
 app.get("/api/documents/citations", authMiddleware, async (req: AuthRequest, res) => {
   try {
     const list = await listCitationsForUser(req.user!.userId);
