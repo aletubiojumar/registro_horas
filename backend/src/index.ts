@@ -8,6 +8,9 @@ import path from "path";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
+// pdf-parse tiene problemas con ESM, usamos require
+const pdfParse = require("pdf-parse");
+
 import {
   initDb,
   getPool,
@@ -2499,8 +2502,9 @@ app.patch("/api/documents/citations/:id/status", authMiddleware, async (req: Aut
           }
           const pdfBuffer = Buffer.concat(chunks);
 
-          // Extraer texto del PDF usando una función simple
-          const pdfText = pdfBuffer.toString('utf-8', 0, Math.min(pdfBuffer.length, 50000));
+          // Extraer texto del PDF usando pdf-parse
+          const pdfData = await pdfParse(pdfBuffer);
+          const pdfText = pdfData.text;
           
           console.log('📄 Texto extraído del PDF (primeros 500 chars):', pdfText.substring(0, 500));
 
