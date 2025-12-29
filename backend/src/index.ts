@@ -2452,6 +2452,38 @@ app.post("/api/documents/payrolls/:id/sign", authMiddleware, async (req: AuthReq
     res.status(500).json({ error: "Error interno" });
   }
 });
+
+// Worker: aceptar o rechazar citación
+app.patch("/api/documents/citations/:id/status", authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const citationId = req.params.id;
+    const userId = req.user!.userId;
+    const { status } = req.body as { status?: string };
+
+    // Validar status
+    if (!status || !["accepted", "rejected"].includes(status)) {
+      return res.status(400).json({ error: "Status inválido. Debe ser 'accepted' o 'rejected'" });
+    }
+
+    // Verificar que la citación existe y pertenece al usuario
+    const citation = await getCitationById(citationId);
+    if (!citation || citation.owner_id !== userId) {
+      return res.status(404).json({ error: "Citación no encontrada" });
+    }
+
+    // Actualizar el estado en la base de datos
+    await getPool().query(
+      `UPDATE citations SET status = $1 WHERE id = $2`,
+      [status, citationId]
+    );
+
+    res.json({ ok: true, status });
+  } catch (err) {
+    console.error("Error PATCH /api/documents/citations/:id/status:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
 // -------------------------
 // Admin: security
 // -------------------------

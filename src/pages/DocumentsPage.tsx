@@ -6,7 +6,13 @@ import SignatureModal from "../components/SignatureModal";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
 
 type Payroll = { id: string; month: string; year: string; fileName: string };
-type Citation = { id: string; title: string; issuedAt: string; fileName: string };
+type Citation = { 
+  id: string; 
+  title: string; 
+  issuedAt: string; 
+  fileName: string;
+  status?: "pending" | "accepted" | "rejected" | string;
+};
 
 const DocumentsPage: React.FC = () => {
   const { user } = useAuth();
@@ -144,6 +150,37 @@ const DocumentsPage: React.FC = () => {
       });
   };
 
+  const handleCitationStatus = async (citationId: string, status: "accepted" | "rejected") => {
+    if (!user?.token) return;
+
+    const statusText = status === "accepted" ? "aceptar" : "rechazar";
+    if (!window.confirm(`¿Estás seguro de que quieres ${statusText} esta citación?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/documents/citations/${citationId}/status`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Error al cambiar estado");
+      }
+
+      alert(`✅ Citación ${status === "accepted" ? "aceptada" : "rechazada"} correctamente.`);
+      loadDocuments(); // Recargar para actualizar el estado
+    } catch (e: any) {
+      console.error(e);
+      alert(`Error: ${e.message || "Error al cambiar estado"}`);
+    }
+  };
+
   const signSelectedPayroll = async (signatureDataUrl: string) => {
     if (!user?.token) return;
     if (!selectedPayrollId) {
@@ -176,6 +213,13 @@ const DocumentsPage: React.FC = () => {
     } finally {
       setIsSigning(false);
     }
+  };
+
+  // Función para obtener el label del estado en español
+  const getStatusLabel = (status?: string) => {
+    if (status === "accepted") return { text: "Aceptada", color: "#166534", bg: "#dcfce7" };
+    if (status === "rejected") return { text: "Rechazada", color: "#991b1b", bg: "#fee2e2" };
+    return { text: "Pendiente", color: "#92400e", bg: "#fef3c7" };
   };
 
   if (!user) return null;
@@ -359,38 +403,95 @@ const DocumentsPage: React.FC = () => {
           {filteredCitations.length > 0 ? (
             <>
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                {filteredCitations.map((c) => (
-                  <li
-                    key={c.id}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "0.5rem 0",
-                      borderBottom: "1px solid #e5e7eb",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 500 }}>{c.title}</div>
-                      <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                        {new Date(c.issuedAt).toLocaleDateString("es-ES")}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleDownload("citation", c.id)}
+                {filteredCitations.map((c) => {
+                  const statusInfo = getStatusLabel(c.status);
+                  const isPending = !c.status || c.status === "pending";
+                  
+                  return (
+                    <li
+                      key={c.id}
                       style={{
-                        padding: "0.3rem 0.6rem",
-                        fontSize: "0.8rem",
-                        borderRadius: "0.25rem",
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#fff",
-                        cursor: "pointer",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "0.75rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        gap: "1rem",
                       }}
                     >
-                      Descargar
-                    </button>
-                  </li>
-                ))}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                          <div style={{ fontWeight: 500 }}>{c.title}</div>
+                          <span
+                            style={{
+                              padding: "0.15rem 0.5rem",
+                              fontSize: "0.7rem",
+                              borderRadius: "999px",
+                              backgroundColor: statusInfo.bg,
+                              color: statusInfo.color,
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {statusInfo.text}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                          {new Date(c.issuedAt).toLocaleDateString("es-ES")}
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
+                        <button
+                          onClick={() => handleDownload("citation", c.id)}
+                          style={{
+                            padding: "0.3rem 0.6rem",
+                            fontSize: "0.8rem",
+                            borderRadius: "0.25rem",
+                            border: "1px solid #d1d5db",
+                            backgroundColor: "#fff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Descargar
+                        </button>
+                        
+                        {isPending && (
+                          <>
+                            <button
+                              onClick={() => handleCitationStatus(c.id, "accepted")}
+                              style={{
+                                padding: "0.3rem 0.6rem",
+                                fontSize: "0.8rem",
+                                borderRadius: "0.25rem",
+                                border: "1px solid #059669",
+                                backgroundColor: "#059669",
+                                color: "#fff",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Aceptar
+                            </button>
+                            <button
+                              onClick={() => handleCitationStatus(c.id, "rejected")}
+                              style={{
+                                padding: "0.3rem 0.6rem",
+                                fontSize: "0.8rem",
+                                borderRadius: "0.25rem",
+                                border: "1px solid #dc2626",
+                                backgroundColor: "#dc2626",
+                                color: "#fff",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Rechazar
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
 
               {hasMoreCitations && !citationSearch && (
