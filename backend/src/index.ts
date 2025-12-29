@@ -8,9 +8,52 @@ import path from "path";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
-// pdf-parse exporta como CommonJS, accedemos a .default si existe
-const pdfParseModule = require("pdf-parse");
-const pdfParse = pdfParseModule.default || pdfParseModule;
+// Función simple para extraer texto de un PDF sin dependencias externas
+async function extractTextFromPDF(pdfBuffer: Buffer): Promise<string> {
+  try {
+    const pdfString = pdfBuffer.toString('latin1');
+    const textBlocks: string[] = [];
+    const btPattern = /BT\s+(.*?)\s+ET/gs;
+    let match;
+    
+    while ((match = btPattern.exec(pdfString)) !== null) {
+      const content = match[1];
+      const tjPattern = /\((.*?)\)\s*Tj/g;
+      const tjArrayPattern = /\[(.*?)\]\s*TJ/g;
+      
+      let textMatch;
+      while ((textMatch = tjPattern.exec(content)) !== null) {
+        const text = textMatch[1]
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t')
+          .replace(/\\\\/g, '\\')
+          .replace(/\\([()])/g, '$1');
+        textBlocks.push(text);
+      }
+      
+      while ((textMatch = tjArrayPattern.exec(content)) !== null) {
+        const arrayContent = textMatch[1];
+        const stringPattern = /\((.*?)\)/g;
+        let stringMatch;
+        while ((stringMatch = stringPattern.exec(arrayContent)) !== null) {
+          const text = stringMatch[1]
+            .replace(/\\n/g, '\n')
+            .replace(/\\r/g, '\r')
+            .replace(/\\t/g, '\t')
+            .replace(/\\\\/g, '\\')
+            .replace(/\\([()])/g, '$1');
+          textBlocks.push(text);
+        }
+      }
+    }
+    
+    return textBlocks.join(' ');
+  } catch (error) {
+    console.error('❌ Error extrayendo texto del PDF:', error);
+    return '';
+  }
+}
 
 import {
   initDb,
@@ -2503,9 +2546,8 @@ app.patch("/api/documents/citations/:id/status", authMiddleware, async (req: Aut
           }
           const pdfBuffer = Buffer.concat(chunks);
 
-          // Extraer texto del PDF usando pdf-parse
-          const pdfData = await pdfParse(pdfBuffer);
-          const pdfText = pdfData.text;
+          // Extraer texto del PDF
+          const pdfText = await extractTextFromPDF(pdfBuffer);
           
           console.log('📄 Texto extraído del PDF (primeros 500 chars):', pdfText.substring(0, 500));
 
