@@ -643,19 +643,23 @@ export async function listCitationsForUser(ownerId: string): Promise<DbCitation[
   return rows;
 }
 
-export async function createCitationRecord(params: {
+export async function createCitationRecord(input: {
+  id: string;
   ownerId: string;
   title: string;
   issuedAt: string;
   fileName: string;
-  pdfData: Buffer;
-}): Promise<DbCitation> {
-  const { rows } = await getPool().query<DbCitation>(
-    `INSERT INTO citations (owner_id, title, issued_at, file_name, pdf_data) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [params.ownerId, params.title, params.issuedAt, params.fileName, params.pdfData]
+  s3Key: string;
+}) {
+  const { id, ownerId, title, issuedAt, fileName, s3Key } = input;
+
+  await pool.query(
+    `INSERT INTO citations (id, owner_id, title, issued_at, file_name, s3_key)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, ownerId, title, issuedAt, fileName, s3Key]
   );
-  return rows[0];
 }
+
 
 export async function getCitationById(id: string): Promise<DbCitation | null> {
   const { rows } = await getPool().query<DbCitation>(
@@ -828,12 +832,12 @@ export async function unblockIp(ip: string) {
 
 export async function setPayrollSignedPdf(opts: {
   payrollId: string;
-  signedPdfData: Buffer;
+  signed: Buffer;
   signatureDataUrl: string;
 }) {
   const pool = getPool();
   await pool.query(
     `UPDATE payrolls SET signed_pdf_data = $2, signed_at = now(), signature_data_url = $3 WHERE id = $1`,
-    [opts.payrollId, opts.signedPdfData, opts.signatureDataUrl]
+    [opts.payrollId, opts.signed, opts.signatureDataUrl]
   );
 }

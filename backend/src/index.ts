@@ -5,6 +5,8 @@ import multer from "multer";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import OpenAI from "openai";
 import path from "path";
+import crypto from "crypto";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
 import {
   initDb,
@@ -1270,13 +1272,13 @@ app.post("/api/documents/contract", authMiddleware, upload.single("file"), async
       ownerId,
       fileName: file.originalname,
       pdfData: file.buffer
-    });
+  });
 
-    res.json({ ok: true, ownerId: newDoc.owner_id, fileName: newDoc.file_name });
+res.json({ ok: true, ownerId: newDoc.owner_id, fileName: newDoc.file_name });
   } catch (err) {
-    console.error("❌ Error trabajador upload contract:", err);
-    res.status(500).json({ error: "Error interno al subir contrato" });
-  }
+  console.error("❌ Error trabajador upload contract:", err);
+  res.status(500).json({ error: "Error interno al subir contrato" });
+}
 });
 
 app.delete("/api/documents/contract", authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -1463,6 +1465,9 @@ app.delete(
 );
 
 // Upload citation for a specific user
+const s3 = new S3Client({ region: process.env.AWS_REGION });
+const DOCS_BUCKET = process.env.S3_BUCKET_DOCS;
+
 app.post(
   "/api/admin/documents/citation",
   authMiddleware,
@@ -1473,53 +1478,43 @@ app.post(
       const { ownerId, title, issuedAt } = req.body;
       const file = req.file;
 
-      if (!file) return res.status(400).json({ error: "Falta archivo" });
-      if (!ownerId || !title || !issuedAt)
-        return res.status(400).json({ error: "Faltan campos (ownerId, title, issuedAt)" });
-
-      await createCitationRecord({
-        ownerId: String(ownerId),
-        title: String(title),
-        issuedAt: String(issuedAt),
-        fileName: file.originalname,
-        pdfData: file.buffer, // ✅ NUEVO
-      });
-
-      res.json({ ok: true });
-    } catch (err) {
-      console.error("Error POST /api/admin/documents/citation:", err);
-      res.status(500).json({ error: "Error interno" });
-    }
-  }
-);
-
-// UPLOAD citation (admin)
-app.post(
-  "/api/admin/documents/citation",
-  authMiddleware,
-  adminOnlyMiddleware,
-  upload.single("file"),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const { ownerId, title, issuedAt } = req.body;
-      const file = req.file;
+      if (!DOCS_BUCKET) {
+        return res.status(500).json({ error: "S3_BUCKET_DOCS no configurado" });
+      }
 
       if (!file) return res.status(400).json({ error: "Falta archivo" });
       if (!ownerId || !title || !issuedAt) {
-        return res.status(400).json({ error: "Faltan campos (ownerId, title, issuedAt)" });
+        return res
+          .status(400)
+          .json({ error: "Faltan campos (ownerId, title, issuedAt)" });
       }
 
+      const citationId =
+        (crypto as any).randomUUID?.() ?? crypto.randomBytes(16).toString("hex");
+
+      const s3Key = `citations/${String(ownerId)}/${citationId}.pdf`;
+
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: DOCS_BUCKET,
+          Key: s3Key,
+          Body: file.buffer,
+          ContentType: file.mimetype || "application/pdf",
+        })
+      );
+
       await createCitationRecord({
+        id: citationId,
         ownerId: String(ownerId),
         title: String(title),
         issuedAt: String(issuedAt),
         fileName: file.originalname,
-        pdfData: file.buffer
+        s3Key,
       });
 
-      res.json({ ok: true });
+      res.json({ ok: true, id: citationId });
     } catch (err) {
-      console.error("Error /admin/documents/citation:", err);
+      console.error("Error POST /api/admin/documents/citation:", err);
       res.status(500).json({ error: "Error interno" });
     }
   }
@@ -1530,37 +1525,40 @@ app.get(
   "/api/admin/documents/citations/:id/download",
   authMiddleware,
   adminOnlyMiddleware,
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res) => {
     try {
-      const cit = await getCitationById(req.params.id);
-      if (!cit) return res.status(404).json({ error: "Citación no encontrada" });
+      const { id } = req.params;
 
-      // Placeholder (igual que worker)
-      const fakeBuffer = Buffer.from(
-        `CITACIÓN: ${cit.title}\nFecha: ${cit.issued_at}\nFichero: ${cit.file_name}\n`
+      if (!DOCS_BUCKET) {
+        return res.status(500).json({ error: "S3_BUCKET_DOCS no configurado" });
+      }
+
+      const { rows } = await getPool().query(
+        `SELECT file_name, s3_key FROM citations WHERE id = $1`,
+        [id]
       );
 
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="${cit.file_name}"`);
-      res.send(fakeBuffer);
-    } catch (err) {
-      console.error("Error /admin/documents/citations/:id/download:", err);
-      res.status(500).json({ error: "Error interno" });
-    }
-  }
-);
+      if (!rows.length) return res.status(404).json({ error: "No encontrada" });
 
-// DELETE citation (admin) by id
-app.delete(
-  "/api/admin/documents/citations/:id",
-  authMiddleware,
-  adminOnlyMiddleware,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      await deleteCitationRecord(req.params.id);
-      res.json({ ok: true });
+      const { file_name: fileName, s3_key: s3Key } = rows[0];
+      if (!s3Key) return res.status(500).json({ error: "Citación sin s3_key" });
+
+      const out = await s3.send(
+        new GetObjectCommand({ Bucket: DOCS_BUCKET, Key: s3Key })
+      );
+
+      res.setHeader("Content-Type", out.ContentType || "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${encodeURIComponent(fileName || "citation.pdf")}"`
+      );
+      if (out.ContentLength) res.setHeader("Content-Length", String(out.ContentLength));
+
+      const body: any = out.Body;
+      if (body && typeof body.pipe === "function") body.pipe(res);
+      else res.status(500).json({ error: "No se pudo leer el PDF" });
     } catch (err) {
-      console.error("Error /admin/documents/citations/:id:", err);
+      console.error("Error download citation:", err);
       res.status(500).json({ error: "Error interno" });
     }
   }
@@ -2190,32 +2188,12 @@ app.post("/api/admin/documents/payroll", authMiddleware, adminOnlyMiddleware, up
       year: Number(year),
       month: String(month).padStart(2, "0"),
       fileName: file.originalname,
-      pdfData: file.buffer
+      pdfData: file.buffer,
     });
 
     res.json({ ok: true });
   } catch (err) {
     console.error("Error POST /api/admin/documents/payroll:", err);
-    res.status(500).json({ error: "Error interno" });
-  }
-});
-
-// Download payroll by id (admin)
-app.get("/api/admin/documents/payrolls/:id/download", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
-  try {
-    const pay = await getPayrollById(req.params.id);
-    if (!pay) return res.status(404).json({ error: "Nómina no encontrada" });
-
-    // Igual que en worker: placeholder
-    const fakeBuffer = Buffer.from(
-      `CONTENIDO DE LA NÓMINA ${pay.file_name}\nAÑO: ${pay.year} MES: ${pay.month}\n`
-    );
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${pay.file_name}"`);
-    res.send(fakeBuffer);
-  } catch (err) {
-    console.error("Error GET /api/admin/documents/payrolls/:id/download:", err);
     res.status(500).json({ error: "Error interno" });
   }
 });
@@ -2230,85 +2208,6 @@ app.delete("/api/admin/documents/payrolls/:id", authMiddleware, adminOnlyMiddlew
     res.status(500).json({ error: "Error interno" });
   }
 });
-
-
-// List citations for a specific user
-app.get("/api/admin/documents/citations", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
-  try {
-    const userId = String(req.query.userId || "");
-    if (!userId) return res.status(400).json({ error: "Falta userId" });
-
-    const list = await listCitationsForUser(userId);
-    res.json({
-      citations: list.map((c) => ({
-        id: c.id,
-        ownerId: c.owner_id,
-        title: c.title,
-        issuedAt: c.issued_at,
-        fileName: c.file_name,
-      })),
-    });
-  } catch (err) {
-    console.error("Error GET /api/admin/documents/citations:", err);
-    res.status(500).json({ error: "Error interno" });
-  }
-});
-
-// Upload citation for a specific user
-app.post("/api/admin/documents/citation", authMiddleware, adminOnlyMiddleware, upload.single("file"), async (req: AuthRequest, res) => {
-  try {
-    const { ownerId, title, issuedAt } = req.body;
-    const file = req.file;
-
-    if (!file) return res.status(400).json({ error: "Falta archivo" });
-    if (!ownerId || !title || !issuedAt) return res.status(400).json({ error: "Faltan campos (ownerId, title, issuedAt)" });
-
-    await createCitationRecord({
-      ownerId: String(ownerId),
-      title: String(title),
-      issuedAt: String(issuedAt),
-      fileName: file.originalname,
-      pdfData: file.buffer
-    });
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Error POST /api/admin/documents/citation:", err);
-    res.status(500).json({ error: "Error interno" });
-  }
-});
-
-// Download citation by id (admin)
-app.get("/api/admin/documents/citations/:id/download", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
-  try {
-    const cit = await getCitationById(req.params.id);
-    if (!cit) return res.status(404).json({ error: "Citación no encontrada" });
-
-    // Igual que en worker: placeholder
-    const fakeBuffer = Buffer.from(
-      `CONTENIDO DE LA CITACIÓN ${cit.file_name}\nTÍTULO: ${cit.title}\nFECHA: ${cit.issued_at}\n`
-    );
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${cit.file_name}"`);
-    res.send(fakeBuffer);
-  } catch (err) {
-    console.error("Error GET /api/admin/documents/citations/:id/download:", err);
-    res.status(500).json({ error: "Error interno" });
-  }
-});
-
-// Delete citation by id (admin) - opcional pero útil
-app.delete("/api/admin/documents/citations/:id", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
-  try {
-    await deleteCitationRecord(req.params.id);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Error DELETE /api/admin/documents/citations/:id:", err);
-    res.status(500).json({ error: "Error interno" });
-  }
-});
-
 
 // Get contract for a specific user (admin)
 app.get("/api/admin/documents/contract", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
@@ -2395,16 +2294,6 @@ function dataUrlToUint8Array(dataUrl: string) {
   return Uint8Array.from(Buffer.from(m[2], "base64"));
 }
 
-// function getClientIp(req: Request): string {
-//   const xff = req.headers["x-forwarded-for"];
-//   const raw =
-//     (typeof xff === "string" ? xff.split(",")[0] : Array.isArray(xff) ? xff[0] : "") ||
-//     req.socket?.remoteAddress ||
-//     (req as any).ip ||
-//     "unknown";
-//   return String(raw);
-// }
-
 export function getClientIp(req: Request): string {
   const xff = req.headers["x-forwarded-for"];
   if (typeof xff === "string" && xff.length > 0) {
@@ -2455,7 +2344,7 @@ app.post("/api/documents/payrolls/:id/sign", authMiddleware, async (req: AuthReq
 
     await setPayrollSignedPdf({
       payrollId,
-      signedPdfData: Buffer.from(signedBytes),
+      signed: Buffer.from(signedBytes),
       signatureDataUrl,
     });
 
