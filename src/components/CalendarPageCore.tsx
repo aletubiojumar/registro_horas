@@ -1,5 +1,11 @@
 import { useState } from "react";
-import type { CalendarEvent } from "../pages/CalendarPage";
+
+type CalendarEvent = {
+  id: string;
+  date: string;
+  type: string;
+  status?: "pending" | "approved";
+};
 
 type Theme = {
   darkMode: boolean;
@@ -13,23 +19,23 @@ type Theme = {
 };
 
 const isWeekend = (dateStr: string): boolean => {
-  // Parsear la fecha correctamente sin problemas de zona horaria
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const d = new Date(year, month - 1, day);
-  const dayOfWeek = d.getDay();
-  // 0 = domingo, 6 = sábado
-  return dayOfWeek === 0 || dayOfWeek === 6;
+  // Parseo seguro (evita UTC shift en "YYYY-MM-DD")
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d); // local
+  const dow = dt.getDay(); // 0 domingo, 6 sábado
+  return dow === 0 || dow === 6;
 };
 
-const isFutureDay = (date: string): boolean => {
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  return date > todayStr;
+const isFutureDay = (dateStr: string): boolean => {
+  // Comparación segura por string YYYY-MM-DD
+  const t = new Date();
+  const todayStr = new Date(t.getFullYear(), t.getMonth(), t.getDate()).toISOString().slice(0, 10);
+  return dateStr > todayStr;
 };
 
 interface Props {
   events: CalendarEvent[];
-  readOnly?: boolean;
+  readOnly?: boolean; // si true, no permite interacción (o solo acciones de admin, según tu uso)
   onApproveVacation?: (id: string, approve: boolean) => void;
   theme?: Theme;
 }
@@ -40,12 +46,12 @@ const CalendarPageCore: React.FC<Props> = ({
   onApproveVacation,
   theme,
 }) => {
-  const [month, setMonth] = useState(new Date().getMonth());
+  const [month, setMonth] = useState(new Date().getMonth()); // 0-11
   const [year, setYear] = useState(new Date().getFullYear());
 
   const dark = theme?.darkMode ?? false;
 
-  // Paleta interna (si no pasas theme, usa claro por defecto)
+  // Paleta (si no pasas theme, usa claro por defecto)
   const palette = {
     border: theme?.border ?? "#e5e7eb",
     text: theme?.text ?? "#111827",
@@ -55,24 +61,26 @@ const CalendarPageCore: React.FC<Props> = ({
     inputBorder: theme?.inputBorder ?? "#d1d5db",
     primary: theme?.primary ?? "#2563eb",
 
-    // Colores específicos del calendario
+    // Cabecera días
     dayHeaderText: dark ? "#94a3b8" : "#4b5563",
 
+    // Celda
     cellBorder: dark ? (theme?.border ?? "#334155") : "#e5e7eb",
     cellText: dark ? "#e5e7eb" : "#111827",
 
     // Fondo de celda según estado
     bgDefault: dark ? "#0b1220" : "#ffffff",
-    bgFuture: dark ? "#0f172a" : "#f9fafb",
+    bgFuture: dark ? "#0f172a" : "#e5e7eb",
     bgWeekend: dark ? "#111827" : "#fef3c7",
 
+    // Vacaciones
     bgVacApproved: dark ? "#0b3a6f" : "#bfdbfe",
     bdVacApproved: dark ? "#2563eb" : "#60a5fa",
 
     bgVacPending: dark ? "#4c2a06" : "#fed7aa",
     bdVacPending: dark ? "#f59e0b" : "#fb923c",
 
-    // "Color por tipo" (en oscuro usamos versiones más profundas)
+    // Colores por tipo (cuando hay eventos no-vacaciones)
     colorByType: ((): Record<any, string> => {
       if (!dark) {
         return {
@@ -80,7 +88,7 @@ const CalendarPageCore: React.FC<Props> = ({
           juicio: "#e9d5ff",
           vacaciones: "#fed7aa",
           "cita médica": "#fecdd3",
-          "citación judicial": "#e9d5ff", // Mismo que juicio
+          "citación judicial": "#dbeafe",
           otros: "#e5e7eb",
         };
       }
@@ -89,12 +97,12 @@ const CalendarPageCore: React.FC<Props> = ({
         juicio: "#241338",
         vacaciones: "#4c2a06",
         "cita médica": "#3b0f18",
-        "citación judicial": "#241338", // Mismo que juicio
+        "citación judicial": "#0b3a6f",
         otros: "#0f172a",
       };
     })(),
 
-    // "pill" de evento dentro de una celda
+    // Pill evento dentro celda
     pillBg: dark ? "#0f172a" : "#ffffff",
     pillBorder: dark ? "#334155" : "#d1d5db",
     pillText: dark ? "#e5e7eb" : "#111827",
@@ -146,10 +154,8 @@ const CalendarPageCore: React.FC<Props> = ({
     cursor: "pointer",
   };
 
-  // Obtener el primer día del mes para saber cuántos espacios vacíos necesitamos
-  // getDay() retorna: 0=domingo, 1=lunes, 2=martes, ..., 6=sábado
-  // Necesitamos convertir a: lunes=0, martes=1, ..., domingo=6
-  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  // ✅ Padding para alinear el día 1 bajo su día de semana (L=0 ... D=6)
+  const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0=domingo
   const startPadding = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
 
   return (
@@ -175,13 +181,7 @@ const CalendarPageCore: React.FC<Props> = ({
       </div>
 
       {/* Leyenda */}
-      <div
-        style={{
-          fontSize: "0.75rem",
-          color: palette.muted,
-          marginBottom: "0.5rem",
-        }}
-      >
+      <div style={{ fontSize: "0.75rem", color: palette.muted, marginBottom: "0.5rem" }}>
         <div>
           <span
             style={{
@@ -249,32 +249,26 @@ const CalendarPageCore: React.FC<Props> = ({
           </div>
         ))}
 
-        {/* Espacios vacíos al inicio */}
+        {/* ✅ Espacios vacíos al inicio */}
         {Array.from({ length: startPadding }).map((_, i) => (
           <div
             key={`empty-${i}`}
             style={{
               minHeight: 70,
-              border: `1px solid transparent`,
+              border: "1px solid transparent",
             }}
           />
         ))}
 
         {monthDays.map((day) => {
-          const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(
-            day
-          ).padStart(2, "0")}`;
+          const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
           const dayEvents = events.filter((e) => e.date === dateStr);
           const weekend = isWeekend(dateStr);
           const future = isFutureDay(dateStr);
 
-          const vacPending = dayEvents.some(
-            (e) => e.type === "vacaciones" && e.status === "pending"
-          );
-          const vacApproved = dayEvents.some(
-            (e) => e.type === "vacaciones" && e.status === "approved"
-          );
+          const vacPending = dayEvents.some((e) => e.type === "vacaciones" && e.status === "pending");
+          const vacApproved = dayEvents.some((e) => e.type === "vacaciones" && e.status === "approved");
 
           let bg = palette.bgDefault;
 
