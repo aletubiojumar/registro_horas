@@ -8,8 +8,9 @@ import path from "path";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
-// pdf-parse tiene problemas con ESM, usamos require
-const pdfParse = require("pdf-parse");
+// pdf-parse exporta como CommonJS, accedemos a .default si existe
+const pdfParseModule = require("pdf-parse");
+const pdfParse = pdfParseModule.default || pdfParseModule;
 
 import {
   initDb,
