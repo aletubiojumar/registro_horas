@@ -2594,40 +2594,48 @@ app.patch("/api/documents/citations/:id/status", authMiddleware, async (req: Aut
             console.log(`📍 Ubicación extraída: ${location}`);
           }
 
-          // Si tenemos fecha, crear el evento
-          if (eventDate) {
-            const eventId = crypto.randomUUID();
-            
-            // Construir la descripción del evento
-            let eventDescription = citation.title || 'Citación judicial';
-            if (eventTime) {
-              eventDescription += ` - ${eventTime}`;
-            }
-            if (location) {
-              eventDescription += ` - ${location}`;
-            }
-
-            console.log(`✅ Creando evento con descripción: ${eventDescription}`);
-
-            // Crear evento en el calendario
-            await getPool().query(
-              `INSERT INTO calendar_events (id, owner_id, type, date, status, visibility, medical_file)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-              [
-                eventId,
-                userId,
-                'citación judicial',
-                eventDate,
-                null, // No necesita aprobación
-                'only-me',
-                eventDescription
-              ]
-            );
-
-            console.log(`✅ Evento de calendario creado: ${eventId} para fecha ${eventDate}`);
-          } else {
-            console.log('⚠️ No se pudo extraer la fecha del PDF');
+          // Si no tenemos fecha, usar una fecha placeholder (hoy + 7 días)
+          if (!eventDate) {
+            const futureDate = new Date();
+            futureDate.setDate(futureDate.getDate() + 7);
+            eventDate = futureDate.toISOString().split('T')[0];
+            console.log('⚠️ No se pudo extraer la fecha del PDF, usando fecha placeholder:', eventDate);
           }
+
+          // Crear el evento SIEMPRE
+          const eventId = crypto.randomUUID();
+          
+          // Construir la descripción del evento
+          let eventDescription = citation.title || 'Citación judicial';
+          if (eventTime) {
+            eventDescription += ` - ${eventTime}`;
+          } else {
+            eventDescription += ' - Hora por confirmar';
+          }
+          if (location) {
+            eventDescription += ` - ${location}`;
+          } else {
+            eventDescription += ' - Lugar por confirmar';
+          }
+
+          console.log(`✅ Creando evento con descripción: ${eventDescription}`);
+
+          // Crear evento en el calendario
+          await getPool().query(
+            `INSERT INTO calendar_events (id, owner_id, type, date, status, visibility, medical_file)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              eventId,
+              userId,
+              'citación judicial',
+              eventDate,
+              null, // No necesita aprobación
+              'only-me',
+              eventDescription
+            ]
+          );
+
+          console.log(`✅ Evento de calendario creado: ${eventId} para fecha ${eventDate}`);
         }
       } catch (err) {
         console.error('❌ Error creando evento de calendario:', err);
