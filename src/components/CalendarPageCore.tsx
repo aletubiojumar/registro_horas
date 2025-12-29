@@ -63,7 +63,7 @@ const CalendarPageCore: React.FC<Props> = ({
 
     // Fondo de celda según estado
     bgDefault: dark ? "#0b1220" : "#ffffff",
-    bgFuture: dark ? "#0f172a" : "#e5e7eb",
+    bgFuture: dark ? "#0f172a" : "#f9fafb",
     bgWeekend: dark ? "#111827" : "#fef3c7",
 
     bgVacApproved: dark ? "#0b3a6f" : "#bfdbfe",
@@ -147,8 +147,9 @@ const CalendarPageCore: React.FC<Props> = ({
   };
 
   // Obtener el primer día del mes para saber cuántos espacios vacíos necesitamos
+  // getDay() retorna: 0=domingo, 1=lunes, 2=martes, ..., 6=sábado
+  // Necesitamos convertir a: lunes=0, martes=1, ..., domingo=6
   const firstDayOfMonth = new Date(year, month, 1).getDay();
-  // Convertir domingo (0) a 7 para que lunes sea 1
   const startPadding = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
 
   return (
@@ -314,7 +315,8 @@ const CalendarPageCore: React.FC<Props> = ({
                     textAlign: "left",
                   }}
                 >
-                  {ev.type === "citación judicial" ? "⚖️" : ""} {ev.type}
+                  {ev.type === "citación judicial" && "⚖️ "}
+                  {ev.type}
                   {ev.type === "vacaciones" && ev.status === "pending" && (
                     <span title="Pendiente de aprobación"> ⏳</span>
                   )}
