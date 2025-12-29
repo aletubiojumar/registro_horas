@@ -42,6 +42,9 @@ type Contract = {
   fileName?: string;
 };
 
+// ✅ siempre con slash delante
+export const API = import.meta.env.VITE_API_URL ?? "/api";
+
 const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
   const API = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
@@ -175,17 +178,16 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
       });
   };
 
-  const API_BASE = "/api";
-
   const handleDownload = (type: DocType, id?: string) => {
     const url =
       type === "contract"
-        ? `${API_BASE}/admin/documents/contract/download?userId=${user.id}`
-        : `${API_BASE}/admin/documents/${type}s/${id}/download`;
+        ? `${API}/admin/documents/contract/download?userId=${user.id}`
+        : // 👇 ojo: para CITATIONS de usuario NO es /admin
+        type === "citation"
+          ? `${API}/documents/citations/${id}/download`
+          : `${API}/admin/documents/${type}s/${id}/download`;
 
-    fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => {
         if (!r.ok) throw new Error("Error al descargar");
         return r.blob();
