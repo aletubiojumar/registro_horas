@@ -554,7 +554,8 @@ export interface DbCitation {
   issued_at: string;
   file_name: string;
   created_at: Date;
-  pdf_data?: Buffer | null;
+  s3_key: string | null;
+  status: string;
 }
 
 export async function listPayrollsForUser(ownerId: string): Promise<DbPayroll[]> {

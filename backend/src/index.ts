@@ -50,6 +50,7 @@ import {
   createCitationRecord,
   getCitationById,
   deleteCitationRecord,
+  DbCitation,
   setPayrollSignedPdf,
   ensureSecuritySchema,
 
@@ -72,7 +73,6 @@ const envFile = process.env.NODE_ENV === "production" ? ".env.production" : ".en
 dotenv.config({
   path: path.resolve(__dirname, "../../../", envFile),
 });
-
 
 // -------------------------
 // IA Schema
@@ -111,6 +111,7 @@ async function ensureIaSchema() {
   );
 
   console.log("✅ IA schema listo (ia_chats / ia_messages)");
+
 
   // -------------------------
   // Security: login attempts + IP blocks
@@ -172,7 +173,9 @@ async function ensureDocsSchema() {
       title text NOT NULL,
       issued_at text NOT NULL,
       file_name text NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now()
+      created_at timestamptz NOT NULL DEFAULT now(),
+      s3_key text,
+      status text NOT NULL DEFAULT 'pending'
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_citations_owner ON citations(owner_id);`);
@@ -1272,13 +1275,13 @@ app.post("/api/documents/contract", authMiddleware, upload.single("file"), async
       ownerId,
       fileName: file.originalname,
       pdfData: file.buffer
-  });
+    });
 
-res.json({ ok: true, ownerId: newDoc.owner_id, fileName: newDoc.file_name });
+    res.json({ ok: true, ownerId: newDoc.owner_id, fileName: newDoc.file_name });
   } catch (err) {
-  console.error("❌ Error trabajador upload contract:", err);
-  res.status(500).json({ error: "Error interno al subir contrato" });
-}
+    console.error("❌ Error trabajador upload contract:", err);
+    res.status(500).json({ error: "Error interno al subir contrato" });
+  }
 });
 
 app.delete("/api/documents/contract", authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -1339,20 +1342,58 @@ app.get("/api/documents/citations", authMiddleware, async (req: AuthRequest, res
 
 app.get("/api/documents/citations/:id/download", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const cit = await getCitationById(req.params.id);
-    if (!cit || cit.owner_id !== req.user!.userId) {
+    const citation = await getCitationById(req.params.id);
+
+    // Verificar que existe y pertenece al usuario
+    if (!citation || citation.owner_id !== req.user!.userId) {
       return res.status(404).json({ error: "Citación no encontrada" });
     }
 
-    const pdf = cit.pdf_data;
-    if (!pdf) return res.status(404).json({ error: "PDF no disponible" });
+    // Verificar que tiene s3_key
+    if (!citation.s3_key) {
+      console.error(`Citation ${citation.id} no tiene s3_key`);
+      return res.status(404).json({ error: "PDF no disponible" });
+    }
 
+    // Verificar que DOCS_BUCKET esté configurado
+    if (!DOCS_BUCKET) {
+      return res.status(500).json({ error: "S3_BUCKET_DOCS no configurado" });
+    }
+
+    // Descargar el PDF desde S3
+    const command = new GetObjectCommand({
+      Bucket: DOCS_BUCKET,
+      Key: citation.s3_key,
+    });
+
+    const s3Response = await s3.send(command);
+
+    if (!s3Response.Body) {
+      return res.status(404).json({ error: "Archivo no encontrado en S3" });
+    }
+
+    // Convertir el stream a buffer
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of s3Response.Body as any) {
+      chunks.push(chunk);
+    }
+    const pdfBuffer = Buffer.concat(chunks);
+
+    // Enviar el PDF al cliente
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${cit.file_name}"`);
-    res.send(pdf);
-  } catch (err) {
-    console.error("Error /documents/citations/:id/download:", err);
-    res.status(500).json({ error: "Error interno" });
+    res.setHeader("Content-Disposition", `attachment; filename="${citation.file_name}"`);
+    res.setHeader("Content-Length", pdfBuffer.length.toString());
+    res.send(pdfBuffer);
+
+  } catch (err: any) {
+    console.error("Error downloading citation:", err);
+
+    // Manejo de errores específicos
+    if (err.name === "NoSuchKey") {
+      return res.status(404).json({ error: "Archivo no encontrado en el almacenamiento" });
+    }
+
+    res.status(500).json({ error: "Error al descargar el documento" });
   }
 });
 
