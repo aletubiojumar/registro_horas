@@ -72,9 +72,22 @@ const DocumentsPage: React.FC = () => {
         ? `${API_BASE_URL}/documents/contract/download`
         : `${API_BASE_URL}/documents/${type}s/${id}/download`;
 
+    console.log('🔍 DEBUG - Intentando descargar:', { type, id, url, fullUrl: window.location.origin + url });
+
     fetch(url, { headers: { Authorization: `Bearer ${user!.token}` } })
       .then((res) => {
-        if (!res.ok) throw new Error("Error al descargar");
+        console.log('📥 Respuesta del servidor:', { status: res.status, ok: res.ok });
+        if (!res.ok) {
+          // Intentar leer el error JSON del backend
+          return res.json().then(
+            (data) => {
+              throw new Error(data.error || `Error ${res.status}: ${res.statusText}`);
+            },
+            () => {
+              throw new Error(`Error ${res.status}: ${res.statusText}`);
+            }
+          );
+        }
         return res.blob();
       })
       .then((blob) => {
@@ -87,8 +100,12 @@ const DocumentsPage: React.FC = () => {
         a.href = URL.createObjectURL(blob);
         a.download = fileName;
         a.click();
+        console.log('✅ Descarga completada');
       })
-      .catch(() => alert("Error al descargar"));
+      .catch((err) => {
+        console.error('❌ Error completo:', err);
+        alert(`Error al descargar: ${err.message}`);
+      });
   };
 
   const signSelectedPayroll = async (signatureDataUrl: string) => {
