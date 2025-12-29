@@ -79,19 +79,46 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
   }, [API, token, user.id]);
 
   const loadDocuments = () => {
+    console.log('🔄 Cargando documentos para usuario:', user.id);
+    
     fetch(`${API}/admin/documents/payrolls?userId=${user.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
-      .then((d) => setPayrolls(d.payrolls || []))
-      .catch(() => setPayrolls([]));
+      .then((r) => {
+        console.log('📥 Respuesta payrolls:', r.status);
+        return r.json();
+      })
+      .then((d) => {
+        console.log('✅ Payrolls cargadas:', d.payrolls);
+        setPayrolls(d.payrolls || []);
+      })
+      .catch((err) => {
+        console.error('❌ Error cargando payrolls:', err);
+        setPayrolls([]);
+      });
 
     fetch(`${API}/admin/documents/citations?userId=${user.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
-      .then((d) => setCitations(d.citations || []))
-      .catch(() => setCitations([]));
+      .then((r) => {
+        console.log('📥 Respuesta citations:', r.status, r.ok);
+        if (!r.ok) {
+          return r.text().then(text => {
+            console.error('❌ Error del servidor:', text);
+            throw new Error(`HTTP ${r.status}: ${text}`);
+          });
+        }
+        return r.json();
+      })
+      .then((d) => {
+        console.log('✅ Citations recibidas:', d);
+        console.log('✅ Array de citations:', d.citations);
+        setCitations(d.citations || []);
+      })
+      .catch((err) => {
+        console.error('❌ Error cargando citations:', err);
+        setCitations([]);
+      });
 
     fetch(`${API}/admin/documents/contract?userId=${user.id}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -279,6 +306,15 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
   const filteredCitations = getFilteredCitations();
   const hasMorePayrolls = payrolls.length > PAYROLLS_LIMIT;
   const hasMoreCitations = citations.length > CITATIONS_LIMIT;
+
+  // Debug: mostrar estado actual
+  console.log('📊 Estado actual:', {
+    totalCitations: citations.length,
+    filteredCitations: filteredCitations.length,
+    citationSearch,
+    showAllCitations,
+    citations: citations,
+  });
 
   const sectionStyle: React.CSSProperties = {
     border: `1px solid ${theme.border}`,
