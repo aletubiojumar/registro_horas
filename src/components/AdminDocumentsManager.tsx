@@ -42,8 +42,8 @@ type Contract = {
   fileName?: string;
 };
 
-// ✅ siempre con slash delante
-export const API = import.meta.env.VITE_API_URL ?? "/api";
+// // ✅ siempre con slash delante
+// export const API = import.meta.env.VITE_API_URL ?? "/api";
 
 const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
   const API = import.meta.env.VITE_API_BASE_URL ?? "/api";
@@ -182,10 +182,7 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
     const url =
       type === "contract"
         ? `${API}/admin/documents/contract/download?userId=${user.id}`
-        : // 👇 ojo: para CITATIONS de usuario NO es /admin
-        type === "citation"
-          ? `${API}/documents/citations/${id}/download`
-          : `${API}/admin/documents/${type}s/${id}/download`;
+        : `${API}/admin/documents/${type}s/${id}/download`;
 
     fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => {
