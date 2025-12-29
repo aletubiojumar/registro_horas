@@ -113,10 +113,10 @@ async function ensureIaSchema() {
   console.log("✅ IA schema listo (ia_chats / ia_messages)");
 
 
-// -------------------------
-// Security: login attempts + IP blocks
-// -------------------------
-await pool.query(`
+  // -------------------------
+  // Security: login attempts + IP blocks
+  // -------------------------
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS login_attempts (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -128,11 +128,11 @@ await pool.query(`
     );
   `);
 
-await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_created_at_idx ON login_attempts (created_at DESC);`);
-await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_username_created_at_idx ON login_attempts (attempted_username, created_at DESC);`);
-await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_ip_created_at_idx ON login_attempts (ip, created_at DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_created_at_idx ON login_attempts (created_at DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_username_created_at_idx ON login_attempts (attempted_username, created_at DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS login_attempts_ip_created_at_idx ON login_attempts (ip, created_at DESC);`);
 
-await pool.query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS blocked_ips (
       ip text PRIMARY KEY,
       reason text,
@@ -1650,6 +1650,17 @@ app.get(
     }
   }
 );
+
+// Delete citation (admin)
+app.delete("/api/admin/documents/citations/:id", authMiddleware, adminOnlyMiddleware, async (req: AuthRequest, res) => {
+  try {
+    await deleteCitationRecord(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error DELETE /api/admin/documents/citations/:id:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
 
 // Upload/replace contract for a specific user (admin)
 app.post(
