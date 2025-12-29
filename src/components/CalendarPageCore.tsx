@@ -13,18 +13,18 @@ type Theme = {
 };
 
 const isWeekend = (dateStr: string): boolean => {
-  // Parsear la fecha correctamente sin problemas de zona horaria
-  const [year, month, day] = dateStr.split('-').map(Number);
-  const d = new Date(year, month - 1, day);
-  const dayOfWeek = d.getDay();
-  // 0 = domingo, 6 = sábado
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const d = new Date(year, month - 1, day); // ✅ local (sin UTC shift)
+  const dayOfWeek = d.getDay(); // 0 domingo, 6 sábado
   return dayOfWeek === 0 || dayOfWeek === 6;
 };
 
-const isFutureDay = (date: string): boolean => {
+const isFutureDay = (dateStr: string): boolean => {
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  return date > todayStr;
+  const todayStr = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    .toISOString()
+    .slice(0, 10);
+  return dateStr > todayStr; // ✅ compara strings YYYY-MM-DD
 };
 
 interface Props {
