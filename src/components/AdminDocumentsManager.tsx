@@ -63,6 +63,16 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
   const contractInputRef = React.useRef<HTMLInputElement>(null);
   const citationInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Estados para nóminas
+  const [payrollSearch, setPayrollSearch] = useState("");
+  const [showAllPayrolls, setShowAllPayrolls] = useState(false);
+  const PAYROLLS_LIMIT = 4;
+
+  // Estados para citaciones
+  const [citationSearch, setCitationSearch] = useState("");
+  const [showAllCitations, setShowAllCitations] = useState(false);
+  const CITATIONS_LIMIT = 4;
+
   useEffect(() => {
     loadDocuments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,6 +213,73 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
       });
   };
 
+  // Filtrar y ordenar nóminas
+  const getFilteredPayrolls = () => {
+    let filtered = [...payrolls];
+
+    // Filtrar por búsqueda
+    if (payrollSearch.trim()) {
+      const searchLower = payrollSearch.toLowerCase();
+      filtered = filtered.filter((p) => {
+        const dateStr = new Date(`${p.year}-${p.month}-01`).toLocaleDateString("es-ES", {
+          month: "long",
+          year: "numeric",
+        });
+        return dateStr.toLowerCase().includes(searchLower);
+      });
+    }
+
+    // Ordenar por fecha (más reciente primero)
+    filtered.sort((a, b) => {
+      const dateA = new Date(`${a.year}-${a.month}-01`).getTime();
+      const dateB = new Date(`${b.year}-${b.month}-01`).getTime();
+      return dateB - dateA;
+    });
+
+    // Limitar cantidad si no se muestran todas
+    if (!showAllPayrolls) {
+      filtered = filtered.slice(0, PAYROLLS_LIMIT);
+    }
+
+    return filtered;
+  };
+
+  // Filtrar y ordenar citaciones
+  const getFilteredCitations = () => {
+    let filtered = [...citations];
+
+    // Filtrar por búsqueda (título o fecha)
+    if (citationSearch.trim()) {
+      const searchLower = citationSearch.toLowerCase();
+      filtered = filtered.filter((c) => {
+        const titleMatch = (c.title || "").toLowerCase().includes(searchLower);
+        const dateMatch = c.issuedAt
+          ? new Date(c.issuedAt).toLocaleDateString("es-ES").toLowerCase().includes(searchLower)
+          : false;
+        return titleMatch || dateMatch;
+      });
+    }
+
+    // Ordenar por fecha (más reciente primero)
+    filtered.sort((a, b) => {
+      const dateA = a.issuedAt ? new Date(a.issuedAt).getTime() : 0;
+      const dateB = b.issuedAt ? new Date(b.issuedAt).getTime() : 0;
+      return dateB - dateA;
+    });
+
+    // Limitar cantidad si no se muestran todas
+    if (!showAllCitations) {
+      filtered = filtered.slice(0, CITATIONS_LIMIT);
+    }
+
+    return filtered;
+  };
+
+  const filteredPayrolls = getFilteredPayrolls();
+  const filteredCitations = getFilteredCitations();
+  const hasMorePayrolls = payrolls.length > PAYROLLS_LIMIT;
+  const hasMoreCitations = citations.length > CITATIONS_LIMIT;
+
   const sectionStyle: React.CSSProperties = {
     border: `1px solid ${theme.border}`,
     borderRadius: "0.5rem",
@@ -286,42 +363,98 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
           </button>
         </div>
 
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {payrolls.map((p) => (
-            <li
-              key={p.id}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "0.4rem 0",
-                borderBottom: `1px solid ${theme.border}`,
+        {/* Barra de búsqueda de nóminas */}
+        {payrolls.length > 0 && (
+          <div style={{ marginBottom: "0.75rem" }}>
+            <input
+              type="text"
+              placeholder="Buscar por mes/año..."
+              value={payrollSearch}
+              onChange={(e) => {
+                setPayrollSearch(e.target.value);
+                setShowAllPayrolls(false);
               }}
-            >
-              <span style={{ fontSize: "0.85rem" }}>
-                {new Date(`${p.year}-${p.month}-02`).toLocaleDateString("es-ES", {
-                  month: "long",
-                  year: "numeric",
-                })}
-              </span>
+              style={{
+                width: "100%",
+                padding: "0.4rem",
+                borderRadius: "0.25rem",
+                border: `1px solid ${theme.inputBorder}`,
+                backgroundColor: theme.inputBg,
+                color: theme.text,
+                fontSize: "0.875rem",
+                outline: "none",
+              }}
+            />
+          </div>
+        )}
 
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button
-                  onClick={() => handleDownload("payroll", p.id)}
-                  style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
+        {filteredPayrolls.length > 0 ? (
+          <>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+              {filteredPayrolls.map((p) => (
+                <li
+                  key={p.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "0.4rem 0",
+                    borderBottom: `1px solid ${theme.border}`,
+                  }}
                 >
-                  Descargar
-                </button>
+                  <span style={{ fontSize: "0.85rem" }}>
+                    {new Date(`${p.year}-${p.month}-02`).toLocaleDateString("es-ES", {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </span>
+
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      onClick={() => handleDownload("payroll", p.id)}
+                      style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
+                    >
+                      Descargar
+                    </button>
+                    <button
+                      onClick={() => handleDelete("payroll", p.id)}
+                      style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
+                    >
+                      Borrar
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {hasMorePayrolls && !payrollSearch && (
+              <div style={{ marginTop: "0.75rem", textAlign: "center" }}>
                 <button
-                  onClick={() => handleDelete("payroll", p.id)}
-                  style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
+                  onClick={() => setShowAllPayrolls(!showAllPayrolls)}
+                  style={{
+                    padding: "0.4rem 0.8rem",
+                    fontSize: "0.8rem",
+                    borderRadius: "0.25rem",
+                    border: `1px solid ${theme.inputBorder}`,
+                    backgroundColor: theme.inputBg,
+                    color: theme.text,
+                    cursor: "pointer",
+                  }}
                 >
-                  Borrar
+                  {showAllPayrolls ? "Ver menos" : `Ver todas (${payrolls.length})`}
                 </button>
               </div>
-            </li>
-          ))}
-        </ul>
+            )}
+          </>
+        ) : payrolls.length > 0 ? (
+          <p style={{ margin: 0, fontSize: "0.85rem", color: theme.muted }}>
+            No se encontraron nóminas que coincidan con "{payrollSearch}".
+          </p>
+        ) : (
+          <p style={{ margin: 0, fontSize: "0.85rem", color: theme.muted }}>
+            No hay nóminas subidas.
+          </p>
+        )}
       </section>
 
       {/* CONTRATO */}
@@ -415,66 +548,122 @@ const AdminDocumentsManager: React.FC<Props> = ({ user, token, theme }) => {
           </button>
         </div>
 
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {citations.map((c) => {
-            const st = statusLabel(c.status);
-            return (
-              <li
-                key={c.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "0.4rem 0",
-                  borderBottom: `1px solid ${theme.border}`,
-                  gap: "0.75rem",
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {c.title || "Citación"}
+        {/* Barra de búsqueda de citaciones */}
+        {citations.length > 0 && (
+          <div style={{ marginBottom: "0.75rem" }}>
+            <input
+              type="text"
+              placeholder="Buscar por título o fecha..."
+              value={citationSearch}
+              onChange={(e) => {
+                setCitationSearch(e.target.value);
+                setShowAllCitations(false);
+              }}
+              style={{
+                width: "100%",
+                padding: "0.4rem",
+                borderRadius: "0.25rem",
+                border: `1px solid ${theme.inputBorder}`,
+                backgroundColor: theme.inputBg,
+                color: theme.text,
+                fontSize: "0.875rem",
+                outline: "none",
+              }}
+            />
+          </div>
+        )}
+
+        {filteredCitations.length > 0 ? (
+          <>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+              {filteredCitations.map((c) => {
+                const st = statusLabel(c.status);
+                return (
+                  <li
+                    key={c.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "0.4rem 0",
+                      borderBottom: `1px solid ${theme.border}`,
+                      gap: "0.75rem",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <div style={{ fontSize: "0.85rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {c.title || "Citación"}
+                        </div>
+
+                        {/* ✅ Badge estado */}
+                        <span
+                          style={{
+                            padding: "0.15rem 0.45rem",
+                            borderRadius: 999,
+                            background: st.bg,
+                            color: st.color,
+                            fontSize: "0.75rem",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={`Estado: ${st.text}`}
+                        >
+                          {st.text}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: "0.75rem", color: theme.muted }}>
+                        {c.issuedAt ? new Date(c.issuedAt).toLocaleDateString("es-ES") : "—"}
+                      </div>
                     </div>
 
-                    {/* ✅ Badge estado */}
-                    <span
-                      style={{
-                        padding: "0.15rem 0.45rem",
-                        borderRadius: 999,
-                        background: st.bg,
-                        color: st.color,
-                        fontSize: "0.75rem",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={`Estado: ${st.text}`}
-                    >
-                      {st.text}
-                    </span>
-                  </div>
+                    <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
+                      <button
+                        onClick={() => handleDownload("citation", c.id)}
+                        style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
+                      >
+                        Descargar
+                      </button>
+                      <button
+                        onClick={() => handleDelete("citation", c.id)}
+                        style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
+                      >
+                        Borrar
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
 
-                  <div style={{ fontSize: "0.75rem", color: theme.muted }}>
-                    {c.issuedAt ? new Date(c.issuedAt).toLocaleDateString("es-ES") : "—"}
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
-                  <button
-                    onClick={() => handleDownload("citation", c.id)}
-                    style={smallBtn(theme.inputBg, theme.inputBorder, theme.text)}
-                  >
-                    Descargar
-                  </button>
-                  <button
-                    onClick={() => handleDelete("citation", c.id)}
-                    style={smallBtn(theme.dangerBg, theme.dangerText, theme.dangerText)}
-                  >
-                    Borrar
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+            {hasMoreCitations && !citationSearch && (
+              <div style={{ marginTop: "0.75rem", textAlign: "center" }}>
+                <button
+                  onClick={() => setShowAllCitations(!showAllCitations)}
+                  style={{
+                    padding: "0.4rem 0.8rem",
+                    fontSize: "0.8rem",
+                    borderRadius: "0.25rem",
+                    border: `1px solid ${theme.inputBorder}`,
+                    backgroundColor: theme.inputBg,
+                    color: theme.text,
+                    cursor: "pointer",
+                  }}
+                >
+                  {showAllCitations ? "Ver menos" : `Ver todas (${citations.length})`}
+                </button>
+              </div>
+            )}
+          </>
+        ) : citations.length > 0 ? (
+          <p style={{ margin: 0, fontSize: "0.85rem", color: theme.muted }}>
+            No se encontraron citaciones que coincidan con "{citationSearch}".
+          </p>
+        ) : (
+          <p style={{ margin: 0, fontSize: "0.85rem", color: theme.muted }}>
+            No hay citaciones subidas.
+          </p>
+        )}
       </section>
     </div>
   );
