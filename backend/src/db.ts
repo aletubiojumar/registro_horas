@@ -4,56 +4,50 @@ import { getDbSecret } from "./aws/getDbSecret";
 import path from "path";
 import fs from "fs";
 
-let pool: Pool;
+let pool: Pool | null = null;
 
 export async function initDb() {
-  if (process.env.DATABASE_URL) {
-    console.log("🟢 Usando DATABASE_URL (modo local)");
+  const isProd = process.env.NODE_ENV === "production";
+  const useSsl = process.env.DB_SSL === "true";
 
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-    });
+  let ssl: false | { ca?: string; rejectUnauthorized: boolean } = false;
 
-  } else {
-    console.log("🟡 Usando AWS Secrets Manager (producción)");
+  if (useSsl) {
+    const certPath = path.resolve(process.cwd(), "rds-ca-bundle.pem");
 
-    const secret = await getDbSecret();
-
-    // Intentar cargar certificado SSL
-    let sslConfig: any = { rejectUnauthorized: false }; // Fallback inseguro
-
-    try {
-      const certPath = process.env.RDS_CA_BUNDLE_PATH
-        ? process.env.RDS_CA_BUNDLE_PATH
-        : path.resolve(process.cwd(), "rds-ca-bundle.pem");
-
-        let ssl: any = false;
-
-      if (fs.existsSync(certPath)) {
-        sslConfig = {
-          rejectUnauthorized: true,
-          ca: fs.readFileSync(certPath).toString()
-        };
-        console.log("✅ Usando SSL con certificado RDS");
+    if (fs.existsSync(certPath)) {
+      ssl = {
+        ca: fs.readFileSync(certPath, "utf8"),
+        rejectUnauthorized: true,
+      };
+      console.log("✅ Usando SSL con CA bundle:", certPath);
+    } else {
+      if (isProd) {
+        throw new Error(
+          `❌ CA bundle NO encontrado en producción: ${certPath}`
+        );
       } else {
-        console.warn("⚠️ Certificado RDS no encontrado, usando SSL inseguro");
+        console.warn(
+          "⚠️ CA bundle no encontrado, usando SSL sin verificación (DEV)"
+        );
+        ssl = { rejectUnauthorized: false };
       }
-    } catch (err) {
-      console.warn("⚠️ Error cargando certificado SSL:", err);
     }
-
-    pool = new Pool({
-      host: secret.host,
-      user: secret.username,
-      password: secret.password,
-      database: secret.dbname,
-      port: secret.port,
-      ssl: sslConfig,
-    });
   }
+
+  const pool = new Pool({
+    host: process.env.DB_HOST,
+    port: Number(process.env.DB_PORT),
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    ssl,
+  });
 
   await pool.query("SELECT 1");
   console.log("✅ Conexión a BD OK");
+
+  return pool;
 }
 
 export function getPool() {
@@ -679,7 +673,7 @@ export async function createCitationRecord(input: {
 }) {
   const { id, ownerId, title, issuedAt, fileName, s3Key } = input;
 
-  await pool.query(
+  await getPool().query(
     `INSERT INTO citations (id, owner_id, title, issued_at, file_name, s3_key)
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [id, ownerId, title, issuedAt, fileName, s3Key]
