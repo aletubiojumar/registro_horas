@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
 import { getDbSecret } from "./aws/getDbSecret";
-import path from "path/win32";
+import path from "path";
 import fs from "fs";
 
 let pool: Pool;
@@ -23,7 +23,12 @@ export async function initDb() {
     let sslConfig: any = { rejectUnauthorized: false }; // Fallback inseguro
 
     try {
-      const certPath = path.join(__dirname, '..', 'rds-ca-bundle.pem');
+      const certPath = process.env.RDS_CA_BUNDLE_PATH
+        ? process.env.RDS_CA_BUNDLE_PATH
+        : path.resolve(process.cwd(), "rds-ca-bundle.pem");
+
+        let ssl: any = false;
+
       if (fs.existsSync(certPath)) {
         sslConfig = {
           rejectUnauthorized: true,
