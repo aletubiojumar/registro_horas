@@ -19,16 +19,31 @@ export async function initDb() {
 
     const secret = await getDbSecret();
 
+    // Intentar cargar certificado SSL
+    let sslConfig: any = { rejectUnauthorized: false }; // Fallback inseguro
+
+    try {
+      const certPath = path.join(__dirname, '..', 'rds-ca-bundle.pem');
+      if (fs.existsSync(certPath)) {
+        sslConfig = {
+          rejectUnauthorized: true,
+          ca: fs.readFileSync(certPath).toString()
+        };
+        console.log("✅ Usando SSL con certificado RDS");
+      } else {
+        console.warn("⚠️ Certificado RDS no encontrado, usando SSL inseguro");
+      }
+    } catch (err) {
+      console.warn("⚠️ Error cargando certificado SSL:", err);
+    }
+
     pool = new Pool({
       host: secret.host,
       user: secret.username,
       password: secret.password,
       database: secret.dbname,
       port: secret.port,
-      ssl: {
-        rejectUnauthorized: true,
-        ca: fs.readFileSync(path.join(__dirname, '..', 'rds-ca-bundle.pem')).toString()
-      },
+      ssl: sslConfig,
     });
   }
 
