@@ -7,6 +7,7 @@ import OpenAI from "openai";
 import path from "path";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { cloudfrontAuthMiddleware } from './middleware/cloudfront-auth';
 
 // Función simple para extraer texto de un PDF sin dependencias externas
 async function extractTextFromPDF(pdfBuffer: Buffer): Promise<string> {
@@ -303,6 +304,7 @@ app.set("trust proxy", 1);
 // -------------------------
 // Middlewares
 // -------------------------
+app.use(cloudfrontAuthMiddleware);
 
 function authMiddleware(
   req: AuthRequest,

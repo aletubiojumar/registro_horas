@@ -1,6 +1,8 @@
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
 import { getDbSecret } from "./aws/getDbSecret";
+import path from "path/win32";
+import fs from "fs";
 
 let pool: Pool;
 
@@ -23,7 +25,10 @@ export async function initDb() {
       password: secret.password,
       database: secret.dbname,
       port: secret.port,
-      ssl: { rejectUnauthorized: false },
+      ssl: {
+        rejectUnauthorized: true,
+        ca: fs.readFileSync(path.join(__dirname, '..', 'rds-ca-bundle.pem')).toString()
+      },
     });
   }
 
